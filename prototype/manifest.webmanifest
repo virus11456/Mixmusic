@@ -1,0 +1,17 @@
+{
+  "name": "Mixmusic",
+  "short_name": "Mixmusic",
+  "description": "給小白的聲音製作台：點格子、拉滑桿，做出自己的聲音和節奏。",
+  "lang": "zh-TW",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#eef1f5",
+  "theme_color": "#1b2430",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

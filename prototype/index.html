@@ -1,4 +1,19 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Mixmusic</title>
+<meta name="description" content="給小白的聲音製作台：點格子、拉滑桿，做出自己的聲音和節奏。">
+<meta name="theme-color" content="#eef1f5" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#141820" media="(prefers-color-scheme: dark)">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Mixmusic">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=DM+Mono:wght@400;500&display=swap">
 <style>
 /* 版面：單頁三段式 — 上方主控列、中間軌道列表、下方「正在編輯」面板。所有顏色和字型都從這裡的 token 來。 */
@@ -134,7 +149,8 @@ canvas.wave{width:100%;height:80px;display:block;background:var(--surface-2);bor
 }
 @media (prefers-reduced-motion: reduce){ .playing .waves i{animation:none;height:60%} }
 </style>
-
+</head>
+<body>
 <div id="app">
   <header class="topbar">
     <div class="brand">Mixmusic <span class="tag">原型</span></div>
@@ -145,6 +161,7 @@ canvas.wave{width:100%;height:80px;display:block;background:var(--surface-2);bor
       <button id="shareBtn">分享</button>
       <button id="exportBtn">匯出 WAV</button>
       <button id="resetBtn">還原</button>
+      <button id="installBtn" hidden>安裝到裝置</button>
     </div>
   </header>
 
@@ -164,6 +181,7 @@ canvas.wave{width:100%;height:80px;display:block;background:var(--surface-2);bor
 
   <section id="editor" class="editor" aria-label="正在編輯"></section>
 
+  <div id="offline" class="hint" hidden><span>目前離線中。App 和你存的東西都還能用，分享和上傳要等連上網路。</span></div>
   <div id="toast" class="toast" hidden></div>
   <div id="modal" class="backdrop" hidden>
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
@@ -636,5 +654,21 @@ load(); syncTop();
 try { if (localStorage.getItem(SAVE_KEY + '.hint')) $('hint').hidden = true; } catch (e) {}
 sel = project.tracks[0] ? project.tracks[0].id : null;
 renderTracks(); renderEditor();
+
+/* ---------- PWA：安裝與離線 ---------- */
+let installPrompt = null;
+window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installPrompt = e; $('installBtn').hidden = false; });
+$('installBtn').addEventListener('click', async () => {
+  if (!installPrompt) return; installPrompt.prompt(); const r = await installPrompt.userChoice; installPrompt = null; $('installBtn').hidden = true;
+  if (r && r.outcome === 'accepted') toast('已安裝，可以從桌面直接打開 Mixmusic');
+});
+window.addEventListener('appinstalled', () => { $('installBtn').hidden = true; });
+const syncOnline = () => { $('offline').hidden = navigator.onLine !== false; };
+window.addEventListener('online', syncOnline); window.addEventListener('offline', syncOnline); syncOnline();
+if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+  window.addEventListener('load', () => { navigator.serviceWorker.register('sw.js').catch(() => {}); });
+}
 })();
 </script>
+</body>
+</html>
