@@ -144,6 +144,15 @@ canvas.wave{width:100%;height:80px;display:block;background:var(--surface-2);bor
 .modal{background:var(--surface);border-radius:16px;padding:20px;max-width:440px;width:100%;display:flex;flex-direction:column;gap:12px;box-shadow:var(--shadow)}
 .modal h2{margin:0;font-size:18px}
 .linkbox{display:flex;gap:8px}
+.proj{border-radius:999px;font-weight:700;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.field{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--muted)}
+.field input{font:inherit;font-size:16px;color:var(--fg);background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+.proj-list{display:flex;flex-direction:column;gap:6px;max-height:40vh;overflow:auto}
+.proj-row{display:grid;grid-template-columns:1fr auto auto;gap:8px;align-items:center}
+.proj-row.current .proj-open{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent) inset}
+.proj-open{text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.proj-when{font-size:12px;color:var(--muted);white-space:nowrap}
+.proj-del{font-size:12px;min-height:32px;padding:4px 10px;color:#c43d2b}
 .linkbox input{flex:1;font:inherit;font-family:var(--font-mono);color:inherit;background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:8px 10px;min-width:0}
 
 @media (max-width:720px){
@@ -165,6 +174,7 @@ canvas.wave{width:100%;height:80px;display:block;background:var(--surface-2);bor
 <div id="app">
   <header class="topbar">
     <div class="brand">Mixmusic <span class="tag">原型</span></div>
+    <button id="projBtn" class="proj" title="我的作品">作品 ▾</button>
     <button id="playBtn" class="play" aria-label="播放">▶ 播放</button>
     <label class="ctl" for="bpm">速度 <input type="range" id="bpm" min="60" max="180" step="1" value="110"> <span class="val mono" id="bpmVal">110</span></label>
     <label class="ctl" for="master">總音量 <input type="range" id="master" min="0" max="100" step="1" value="80"></label>
@@ -197,6 +207,15 @@ canvas.wave{width:100%;height:80px;display:block;background:var(--surface-2);bor
   <div id="offline" class="hint" hidden><span>目前離線中。App 和你存的東西都還能用，分享和上傳要等連上網路。</span></div>
   <button id="fab" class="fab" aria-label="播放">▶</button>
   <div id="toast" class="toast" hidden></div>
+  <div id="libModal" class="backdrop" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="libTitle">
+      <h2 id="libTitle">我的作品</h2>
+      <label class="field" for="projName">這首的名字 <input id="projName" type="text" maxlength="40"></label>
+      <div id="projList" class="proj-list"></div>
+      <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><button id="projNew">＋ 新作品</button><button id="libClose">關閉</button></div>
+      <p class="note" style="margin:0">作品都存在這台裝置的瀏覽器裡。</p>
+    </div>
+  </div>
   <div id="modal" class="backdrop" hidden>
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
       <h2 id="modalTitle">分享這首</h2>
@@ -215,16 +234,18 @@ const STEPS = 16;
 const SCALE = [60,62,64,67,69,72,74,76];
 const SCALE_NAMES = ['Do','Re','Mi','Sol','La','高Do','高Re','高Mi'];
 const KEYS = ['a','s','d','f','g','h','j','k'];
-const DRUMS = [{id:'kick',name:'大鼓'},{id:'snare',name:'小鼓'},{id:'hat',name:'Hi-hat'},{id:'clap',name:'拍手'}];
+const DRUMS = [{id:'kick',name:'大鼓'},{id:'snare',name:'小鼓'},{id:'hat',name:'Hi-hat'},{id:'clap',name:'拍手'},{id:'tom',name:'Tom'},{id:'shaker',name:'沙鈴'}];
+const DRUM_DEFAULTS = {kick:0.9, snare:0.7, hat:0.5, clap:0.6, tom:0.7, shaker:0.4};
 const COLORS = ['#f5a524','#3d7cf4','#1fb5a3','#a06cf0','#ef5b7a','#4caf6e','#e0953a','#5b8def'];
 const TYPE_NAME = {drum:'鼓', synth:'合成器', texture:'環境音', sample:'真實聲音'};
 const SHAPES = [['sine','圓潤'],['square','明亮'],['sawtooth','粗糙'],['triangle','柔和']];
 
 const PATTERNS = {
-  '基本四四拍': {kick:[0,4,8,12], snare:[4,12], hat:[0,2,4,6,8,10,12,14], clap:[]},
-  '嘻哈':       {kick:[0,7,10], snare:[4,12], hat:[2,6,10,14,15], clap:[12]},
-  '電子舞曲':   {kick:[0,4,8,12], snare:[], hat:[2,6,10,14], clap:[4,12]},
-  '慢板':       {kick:[0,10], snare:[8], hat:[4,12], clap:[]},
+  '基本四四拍': {kick:[0,4,8,12], snare:[4,12], hat:[0,2,4,6,8,10,12,14], clap:[], tom:[], shaker:[]},
+  '嘻哈':       {kick:[0,7,10], snare:[4,12], hat:[2,6,10,14,15], clap:[12], tom:[], shaker:[1,3,5,7,9,11,13,15]},
+  '電子舞曲':   {kick:[0,4,8,12], snare:[], hat:[2,6,10,14], clap:[4,12], tom:[], shaker:[1,3,5,7,9,11,13,15]},
+  '慢板':       {kick:[0,10], snare:[8], hat:[4,12], clap:[], tom:[13,14], shaker:[]},
+  '拉丁':       {kick:[0,6,8,14], snare:[], hat:[], clap:[4,12], tom:[2,10,11], shaker:[0,2,4,6,8,10,12,14]},
 };
 const SYNTH_PRESETS = {
   '溫暖貝斯': {shape:'triangle', pitch:-12, brightness:0.35, attack:0.03, release:0.25, vibrato:0},
@@ -232,12 +253,53 @@ const SYNTH_PRESETS = {
   '復古電玩': {shape:'square',   pitch:0,   brightness:0.7,  attack:0.01, release:0.1,  vibrato:0},
   '夢幻合成': {shape:'sawtooth', pitch:0,   brightness:0.4,  attack:0.5,  release:0.9,  vibrato:0.4},
 };
+const R = () => Math.random();
+/* 每種環境音 = 一層底噪（noise/filter/gain/rate）＋ 可選的隨機事件（event 發一次聲、gap 回傳下一次要隔多久） */
 const TEXTURES = {
-  '雨聲':   {noise:'white', filter:'bandpass', minHz:800,  maxHz:6000, rate:7,    gain:0.5},
-  '風聲':   {noise:'brown', filter:'lowpass',  minHz:150,  maxHz:1500, rate:0.3,  gain:1.6},
-  '海浪':   {noise:'brown', filter:'lowpass',  minHz:120,  maxHz:1200, rate:0.12, gain:1.8},
-  '白噪音': {noise:'white', filter:'lowpass',  minHz:400,  maxHz:16000,rate:1,    gain:0.4},
+  '雨聲':   {noise:'white', filter:'bandpass', minHz:800,  maxHz:6000, rate:7,    gain:0.45, dl:'粗細', ml:'起伏',
+             event:(d, t, tr) => { const f = 2500 + R() * 4000; blip(d, t, f, f * 0.6, 0.025 + R() * 0.03, 0.05 + tr.params.density * 0.08); },
+             gap:(tr) => 0.015 + R() * 0.25 / (0.2 + tr.params.density)},
+  '雷聲':   {noise:'brown', filter:'lowpass',  minHz:80,   maxHz:400,  rate:0.2,  gain:0.5, dl:'多寡', dk:'amount', ml:'起伏',
+             event:(d, t, tr) => { burst(d, t, 1.5 + R() * 2.5, 0.9 + R() * 0.5, 'lowpass', 120 + R() * 350, 0.6, 0.15 + R() * 0.4); },
+             gap:(tr) => 3 + R() * 12 / (0.15 + tr.params.density)},
+  '風聲':   {noise:'brown', filter:'lowpass',  minHz:150,  maxHz:1500, rate:0.3,  gain:1.6, dl:'粗細', ml:'起伏'},
+  '海浪':   {noise:'brown', filter:'lowpass',  minHz:120,  maxHz:1200, rate:0.12, gain:1.8, dl:'粗細', ml:'起伏'},
+  '溪流':   {noise:'white', filter:'bandpass', minHz:600,  maxHz:3500, rate:3,    gain:0.5, dl:'粗細', ml:'起伏',
+             event:(d, t, tr) => { const f = 350 + R() * 600; blip(d, t, f, f * 2.2, 0.05 + R() * 0.05, 0.03 + tr.params.density * 0.05); },
+             gap:(tr) => 0.08 + R() * 0.7 / (0.2 + tr.params.density)},
+  '鳥叫':   {noise:'white', filter:'lowpass',  minHz:200,  maxHz:600,  rate:0.25, gain:0.08, dl:'多寡', dk:'amount', ml:'起伏',
+             event:(d, t, tr) => { const n = 2 + Math.floor(R() * 4), f0 = 1800 + R() * 2500; let tt = t;
+               for (let i = 0; i < n; i++) { const f = f0 * (0.9 + R() * 0.3); blip(d, tt, f, f * (1.15 + R() * 0.6), 0.07 + R() * 0.1, 0.25 + R() * 0.15); tt += 0.1 + R() * 0.12; } },
+             gap:(tr) => 0.6 + R() * 4 / (0.15 + tr.params.density)},
+  '蟲鳴':   {noise:'white', filter:'lowpass',  minHz:200,  maxHz:400,  rate:0.2,  gain:0.02, dl:'多寡', dk:'amount', ml:'起伏',
+             event:(d, t, tr) => { trill(d, t, 4000 + R() * 900, 0.35 + R() * 0.7, 0.18 + tr.params.density * 0.08); },
+             gap:(tr) => 0.15 + R() * 1.2 / (0.2 + tr.params.density)},
+  '營火':   {noise:'brown', filter:'lowpass',  minHz:150,  maxHz:900,  rate:0.8,  gain:0.7, dl:'旺盛', dk:'amount', ml:'起伏',
+             event:(d, t, tr) => { burst(d, t, 0.004 + R() * 0.02, 0.25 + R() * 0.4, 'highpass', 1200 + R() * 2000, 0.7, 0.001); },
+             gap:(tr) => 0.02 + R() * 0.35 / (0.15 + tr.params.density)},
+  '心跳':   {noise:'white', filter:'lowpass',  minHz:100,  maxHz:200,  rate:0.5,  gain:0,   dl:'快慢', dk:'speed', ml:'力道', mk:'strength',
+             event:(d, t, tr) => { const L = 0.5 + tr.params.movement * 0.6; blip(d, t, 75, 42, 0.14, L); blip(d, t + 0.19, 62, 38, 0.11, L * 0.65); },
+             gap:(tr) => 60 / (48 + tr.params.density * 72)},
+  '白噪音': {noise:'white', filter:'lowpass',  minHz:400,  maxHz:16000,rate:1,    gain:0.4, dl:'粗細', ml:'起伏'},
 };
+function blip(dest, time, f0, f1, dur, lvl){
+  const o = ctx.createOscillator(), g = ctx.createGain(); o.type = 'sine';
+  o.frequency.setValueAtTime(f0, time); o.frequency.exponentialRampToValueAtTime(Math.max(20, f1), time + dur);
+  g.gain.setValueAtTime(0.0001, time); g.gain.exponentialRampToValueAtTime(lvl, time + Math.min(0.006, dur * 0.3)); g.gain.exponentialRampToValueAtTime(0.0001, time + dur);
+  o.connect(g).connect(dest); o.start(time); o.stop(time + dur + 0.02);
+}
+function burst(dest, time, dur, lvl, ftype, freq, q, attack){
+  const n = noiseSource(ftype === 'highpass' ? 'white' : 'brown'), f = ctx.createBiquadFilter(), g = ctx.createGain();
+  f.type = ftype; f.frequency.value = freq; f.Q.value = q;
+  g.gain.setValueAtTime(0.0001, time); g.gain.exponentialRampToValueAtTime(lvl, time + Math.max(0.001, attack)); g.gain.exponentialRampToValueAtTime(0.0001, time + dur);
+  n.connect(f).connect(g).connect(dest); n.start(time); n.stop(time + dur + 0.05);
+}
+function trill(dest, time, freq, dur, lvl){
+  const o = ctx.createOscillator(), g = ctx.createGain(), am = ctx.createOscillator(), amG = ctx.createGain();
+  o.type = 'sine'; o.frequency.value = freq; am.type = 'square'; am.frequency.value = 26 + R() * 10; amG.gain.value = lvl * 0.5;
+  g.gain.setValueAtTime(lvl * 0.5, time); g.gain.setValueAtTime(lvl * 0.5, time + dur - 0.05); g.gain.linearRampToValueAtTime(0, time + dur);
+  am.connect(amG).connect(g.gain); o.connect(g).connect(dest); o.start(time); am.start(time); o.stop(time + dur + 0.02); am.stop(time + dur + 0.02);
+}
 
 let uidN = 0;
 const uid = () => 't' + Date.now().toString(36) + (uidN++).toString(36);
@@ -252,29 +314,80 @@ function nextColor(){ const used = project.tracks.map(t => t.color); return COLO
 
 function makeTrack(type){
   const base = {id: uid(), type, name: TYPE_NAME[type], color: nextColor(), mixer: defaultMixer()};
-  if (type === 'drum') return Object.assign(base, {levels:{kick:0.9,snare:0.7,hat:0.5,clap:0.6}, tune:0, decay:1, grid: patternGrid('基本四四拍')});
+  if (type === 'drum') return Object.assign(base, {levels:{...DRUM_DEFAULTS}, tune:0, decay:1, grid: patternGrid('基本四四拍')});
   if (type === 'synth') return Object.assign(base, {sound: {...SYNTH_PRESETS['復古電玩']}, record:false, grid: emptyGrid(8)});
   if (type === 'texture') return Object.assign(base, {preset:'雨聲', params:{density:0.6, movement:0.3}, mixer:{...defaultMixer(), volume:0.35}});
   return Object.assign(base, {loop:true, speed:1, start:0, fileName:'', duration:0});
 }
 function defaultProject(){
+  const prev = project;
   project = {version:1, name:'我的第一首', bpm:110, master:{volume:0.8}, tracks:[]};
   const drum = makeTrack('drum'); drum.name = '鼓'; project.tracks.push(drum);
   const bass = makeTrack('synth'); bass.name = '貝斯'; bass.sound = {...SYNTH_PRESETS['溫暖貝斯']}; bass.mixer.volume = 0.7; project.tracks.push(bass);
   [[0,0],[0,4],[2,6],[3,8],[2,12],[4,14]].forEach(([p,s]) => bass.grid[p][s] = 1);
   const rain = makeTrack('texture'); rain.name = '雨聲'; rain.mixer.reverb = 0.2; project.tracks.push(rain);
-  return project;
+  const p = project; project = prev; return p;
 }
 
 /* ---------- 狀態 ---------- */
 let project = null, sel = null;
-const SAVE_KEY = 'mixmusic.prototype.v1';
+const SAVE_KEY = 'mixmusic.prototype.v1', LIST_KEY = 'mixmusic.projects.v1', PKEY = (id) => 'mixmusic.project.' + id;
+let lib = {list: [], current: null};
+const lsGet = (k) => { try { const raw = localStorage.getItem(k); return raw ? JSON.parse(raw) : null; } catch (e) { return null; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} };
+function writeLib(){ lsSet(LIST_KEY, lib); }
+function migrate(p){
+  p.tracks.forEach(t => {
+    if (t.type === 'drum') { while (t.grid.length < DRUMS.length) t.grid.push(Array(STEPS).fill(0)); DRUMS.forEach(d => { if (t.levels[d.id] == null) t.levels[d.id] = DRUM_DEFAULTS[d.id]; }); }
+    if (t.type === 'texture' && !TEXTURES[t.preset]) t.preset = '雨聲';
+  });
+  return p;
+}
+function openProject(id){
+  let p = lsGet(PKEY(id)); if (!(p && Array.isArray(p.tracks))) { p = defaultProject(); }
+  project = migrate(p); project.id = id; lib.current = id; writeLib();
+}
 function load(){
-  try { const raw = localStorage.getItem(SAVE_KEY); if (raw) { const p = JSON.parse(raw); if (p && p.version === 1 && Array.isArray(p.tracks)) { project = p; return; } } } catch (e) {}
-  defaultProject();
+  const saved = lsGet(LIST_KEY); if (saved && Array.isArray(saved.list)) lib = saved;
+  if (!lib.list.length) {
+    let p = lsGet(SAVE_KEY); if (!(p && p.version === 1 && Array.isArray(p.tracks))) p = defaultProject();
+    p.id = p.id || uid(); project = migrate(p); lib.list = [{id: p.id, name: p.name, updated: Date.now()}]; lib.current = p.id; persistNow(); return;
+  }
+  openProject(lib.list.some(x => x.id === lib.current) ? lib.current : lib.list[0].id);
 }
 let saveT = null;
-function save(){ clearTimeout(saveT); saveT = setTimeout(() => { try { localStorage.setItem(SAVE_KEY, JSON.stringify(project)); } catch (e) {} }, 300); }
+function persistNow(){ lsSet(PKEY(project.id), project); const e = lib.list.find(x => x.id === project.id); if (e) { e.name = project.name; e.updated = Date.now(); } writeLib(); }
+function save(){ clearTimeout(saveT); saveT = setTimeout(persistNow, 300); }
+function switchProject(id){
+  if (playing) stop(); if (rec) stopRecording(); clearTimeout(saveT); persistNow();
+  nodes.clear(); samples.clear(); openProject(id); if (ctx) project.tracks.forEach(getChain);
+  sel = project.tracks[0] ? project.tracks[0].id : null; syncTop(); renderTracks(); renderEditor(); restoreFiles(); renderLibrary();
+}
+function newProject(){
+  clearTimeout(saveT); persistNow();
+  const p = defaultProject(); p.id = uid(); p.name = '新作品 ' + (lib.list.length + 1);
+  lib.list.unshift({id: p.id, name: p.name, updated: Date.now()}); lsSet(PKEY(p.id), p); switchProject(p.id); $('libModal').hidden = true; toast('已建立「' + p.name + '」，先幫它取個名字吧');
+}
+function deleteProject(id){
+  const p = lsGet(PKEY(id)); if (p && Array.isArray(p.tracks)) p.tracks.forEach(t => { if (t.type === 'sample') idb.del(t.id); });
+  try { localStorage.removeItem(PKEY(id)); } catch (e) {}
+  lib.list = lib.list.filter(x => x.id !== id);
+  if (!lib.list.length) { newProject(); return; }
+  if (lib.current === id) switchProject(lib.list[0].id); else { writeLib(); renderLibrary(); }
+}
+function renderLibrary(){
+  $('projBtn').textContent = project.name + ' ▾'; $('projName').value = project.name;
+  const box = $('projList'); box.innerHTML = '';
+  lib.list.forEach(e => {
+    const row = el('div', 'proj-row' + (e.id === project.id ? ' current' : ''));
+    const name = el('button', 'proj-open', e.name); name.type = 'button'; name.title = '打開';
+    name.addEventListener('click', () => { if (e.id !== project.id) switchProject(e.id); $('libModal').hidden = true; });
+    const when = el('span', 'proj-when', e.id === project.id ? '目前' : new Date(e.updated).toLocaleDateString('zh-TW'));
+    const del = el('button', 'proj-del', '刪除'); del.type = 'button';
+    del.addEventListener('click', () => { if (del.dataset.arm) deleteProject(e.id); else { del.dataset.arm = '1'; del.textContent = '確定？'; setTimeout(() => { delete del.dataset.arm; del.textContent = '刪除'; }, 3000); } });
+    row.append(name, when, del); box.append(row);
+  });
+}
 const track = (id) => project.tracks.find(t => t.id === id);
 const idb = {
   open(){ return new Promise((res, rej) => { if (!window.indexedDB) return rej(new Error('no idb')); const r = indexedDB.open('mixmusic', 1); r.onupgradeneeded = () => r.result.createObjectStore('files'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }); },
@@ -373,6 +486,14 @@ const DRUM_FN = {
     hp.type = 'highpass'; hp.frequency.value = 7000 * f;
     g.gain.setValueAtTime(t.levels.hat * 0.7, time); g.gain.exponentialRampToValueAtTime(0.001, time + 0.07 * d);
     n.connect(hp).connect(g).connect(dest); n.start(time); n.stop(time + 0.1 * d); },
+  tom(dest, time, t){ const f = tuneFactor(t), d = t.decay, o = ctx.createOscillator(), g = ctx.createGain();
+    o.frequency.setValueAtTime(220 * f, time); o.frequency.exponentialRampToValueAtTime(90 * f, time + 0.25 * d);
+    g.gain.setValueAtTime(t.levels.tom, time); g.gain.exponentialRampToValueAtTime(0.001, time + 0.4 * d);
+    o.connect(g).connect(dest); o.start(time); o.stop(time + 0.45 * d); },
+  shaker(dest, time, t){ const f = tuneFactor(t), d = t.decay, n = noiseSource('white'), bp = ctx.createBiquadFilter(), g = ctx.createGain();
+    bp.type = 'bandpass'; bp.frequency.value = 5500 * f; bp.Q.value = 1.5;
+    g.gain.setValueAtTime(0.001, time); g.gain.exponentialRampToValueAtTime(t.levels.shaker * 0.8, time + 0.015); g.gain.exponentialRampToValueAtTime(0.001, time + 0.09 * d);
+    n.connect(bp).connect(g).connect(dest); n.start(time); n.stop(time + 0.12 * d); },
   clap(dest, time, t){ const f = tuneFactor(t), d = t.decay, n = noiseSource('white'), bp = ctx.createBiquadFilter(), g = ctx.createGain();
     bp.type = 'bandpass'; bp.frequency.value = 1300 * f; bp.Q.value = 1.2; const L = t.levels.clap;
     g.gain.setValueAtTime(0, time);
@@ -394,7 +515,16 @@ function startTexture(t){
   const src = noiseSource(def.noise), filt = ctx.createBiquadFilter(), g = ctx.createGain(), lfo = ctx.createOscillator(), lfoG = ctx.createGain();
   filt.type = def.filter; filt.Q.value = def.filter === 'bandpass' ? 0.6 : 0.8; lfo.frequency.value = def.rate;
   lfo.connect(lfoG).connect(g.gain); src.connect(filt).connect(g).connect(c.input); src.start(); lfo.start();
-  c.live = {src, filt, g, lfo, lfoG, kind: 'texture'}; updateTexture(t);
+  c.live = {src, filt, g, lfo, lfoG, kind: 'texture', next: null, timer: null}; updateTexture(t);
+  if (def.event) {
+    if (ctx.startRendering) scheduleEvents(t, c, 0, ctx.length / ctx.sampleRate);
+    else { scheduleEvents(t, c, ctx.currentTime + 0.05, ctx.currentTime + 0.9); c.live.timer = setInterval(() => { if (c.live) scheduleEvents(t, c, ctx.currentTime, ctx.currentTime + 0.9); }, 300); }
+  }
+}
+function scheduleEvents(t, c, from, to){
+  const def = TEXTURES[t.preset]; let time = c.live.next != null ? Math.max(c.live.next, from) : from + R() * 0.3;
+  while (time < to) { def.event(c.input, time, t); time += def.gap(t); }
+  c.live.next = time;
 }
 function updateTexture(t){
   const c = nodes.get(t.id); if (!c || !c.live) return; const def = TEXTURES[t.preset], depth = t.params.movement;
@@ -406,7 +536,7 @@ function startSample(t){
   const src = ctx.createBufferSource(); src.buffer = buf; src.loop = t.loop; src.loopStart = t.start; src.loopEnd = buf.duration; src.playbackRate.value = t.speed;
   src.connect(c.input); src.start(0, t.start); c.live = {src, kind: 'sample'};
 }
-function stopLive(t){ const c = nodes.get(t.id); if (!c || !c.live) return; try { c.live.src.stop(); if (c.live.lfo) c.live.lfo.stop(); } catch (e) {} c.live = null; }
+function stopLive(t){ const c = nodes.get(t.id); if (!c || !c.live) return; if (c.live.timer) clearInterval(c.live.timer); try { c.live.src.stop(); if (c.live.lfo) c.live.lfo.stop(); } catch (e) {} c.live = null; }
 function restartLive(t){ if (!playing) return; stopLive(t); if (t.type === 'texture') startTexture(t); if (t.type === 'sample') startSample(t); }
 
 /* ---------- 手機解鎖 ---------- */
@@ -477,7 +607,10 @@ const D = {
   decay: v => lvl3(v, 0.8, 1.3, ['短', '一般', '長']),
   density: v => lvl3(v, 0.33, 0.66, ['低沉', '中等', '尖細']),
   movement: v => lvl3(v, 0.2, 0.6, ['平穩', '有起伏', '起伏很大']),
-  speed: v => Math.abs(v - 1) < 0.02 ? '原速' : Math.round(v * 100) + '%',
+  amount: v => lvl3(v, 0.33, 0.66, ['少', '中等', '很多']),
+  strength: v => lvl3(v, 0.33, 0.66, ['輕', '中等', '用力']),
+  speed: v => v <= 1 ? lvl3(v, 0.33, 0.66, ['慢', '中等', '快']) : (Math.abs(v - 1) < 0.02 ? '原速' : Math.round(v * 100) + '%'),
+  rate: v => Math.abs(v - 1) < 0.02 ? '原速' : Math.round(v * 100) + '%',
   start: v => v.toFixed(1) + ' 秒',
 };
 
@@ -617,11 +750,11 @@ function renderSynth(ed, t){
 function renderTexture(ed, t){
   const pre = section('哪一種環境音');
   pre.append(chips(Object.keys(TEXTURES).map(k => [k, k]), t.preset, v => { t.preset = v; if (t.name === TYPE_NAME.texture || Object.keys(TEXTURES).includes(t.name)) t.name = v; save(); restartLive(t); renderTracks(); renderEditor(); }));
+  const def = TEXTURES[t.preset] || TEXTURES['雨聲'];
   const s = section('這個聲音', '大小請用上面那軌的音量'), sl = el('div', 'sliders');
-  sl.append(
-    slider(t, 'density', '粗細', t.params.density, 0, 1, 0.01, v => { t.params.density = v; updateTexture(t); }),
-    slider(t, 'movement', '起伏', t.params.movement, 0, 1, 0.01, v => { t.params.movement = v; updateTexture(t); }),
-  );
+  const d1 = slider(t, def.dk || 'density', def.dl || '粗細', t.params.density, 0, 1, 0.01, v => { t.params.density = v; updateTexture(t); });
+  const d2 = slider(t, def.mk || 'movement', def.ml || '起伏', t.params.movement, 0, 1, 0.01, v => { t.params.movement = v; updateTexture(t); });
+  sl.append(d1, d2);
   s.append(sl); ed.append(pre, s);
   if (!playing) ed.append(el('p', 'note', '按上方 ▶ 播放就會聽到。環境音會一直持續，不跟著格子。'));
 }
@@ -645,7 +778,7 @@ function renderSample(ed, t){
   if (buf) { const cv = el('canvas', 'wave'); d.append(cv); requestAnimationFrame(() => drawWave(cv, buf, t)); }
   ed.append(d);
   const s = section('怎麼播'), sl = el('div', 'sliders');
-  sl.append(slider(t, 'speed', '速度', t.speed, 0.8, 1.2, 0.01, v => { t.speed = v; const c = nodes.get(t.id); if (c && c.live) c.live.src.playbackRate.value = v; }));
+  sl.append(slider(t, 'rate', '速度', t.speed, 0.8, 1.2, 0.01, v => { t.speed = v; const c = nodes.get(t.id); if (c && c.live) c.live.src.playbackRate.value = v; }));
   if (buf) sl.append(slider(t, 'start', '從哪裡開始', t.start, 0, Math.max(0.1, buf.duration - 0.1), 0.1, v => { t.start = v; restartLive(t); }));
   const tog = el('label', 'toggle'); const cb = el('input'); cb.type = 'checkbox'; cb.id = 'loop_' + t.id; cb.checked = t.loop;
   cb.addEventListener('change', () => { t.loop = cb.checked; save(); restartLive(t); }); tog.append(cb, el('span', null, '播完自動重頭循環'));
@@ -757,9 +890,14 @@ async function exportWav(){
 }
 $('exportBtn').addEventListener('click', exportWav);
 $('fab').addEventListener('click', togglePlay);
+$('projBtn').addEventListener('click', () => { renderLibrary(); $('libModal').hidden = false; $('projName').focus(); });
+$('libClose').addEventListener('click', () => { $('libModal').hidden = true; });
+$('libModal').addEventListener('click', e => { if (e.target === $('libModal')) $('libModal').hidden = true; });
+$('projNew').addEventListener('click', newProject);
+$('projName').addEventListener('input', e => { project.name = e.target.value.trim() || '未命名'; $('projBtn').textContent = project.name + ' ▾'; save(); const row = $('projList').querySelector('.current .proj-open'); if (row) row.textContent = project.name; });
 const resetBtn = $('resetBtn');
 resetBtn.addEventListener('click', () => {
-  if (resetBtn.dataset.arm) { if (playing) stop(); nodes.clear(); samples.clear(); idb.clear(); defaultProject(); sel = project.tracks[0].id; save(); syncTop(); renderTracks(); renderEditor(); delete resetBtn.dataset.arm; resetBtn.textContent = '還原'; toast('已回到一開始的範例'); }
+  if (resetBtn.dataset.arm) { if (playing) stop(); project.tracks.forEach(t => { if (t.type === 'sample') idb.del(t.id); }); nodes.clear(); samples.clear(); const id = project.id, name = project.name; project = defaultProject(); project.id = id; project.name = name; sel = project.tracks[0].id; save(); syncTop(); renderTracks(); renderEditor(); renderLibrary(); delete resetBtn.dataset.arm; resetBtn.textContent = '還原'; toast('已回到一開始的範例'); }
   else { resetBtn.dataset.arm = '1'; resetBtn.textContent = '確定還原？再按一次'; setTimeout(() => { delete resetBtn.dataset.arm; resetBtn.textContent = '還原'; }, 3000); }
 });
 function syncTop(){ $('bpm').value = project.bpm; $('bpmVal').textContent = project.bpm; $('master').value = Math.round(project.master.volume * 100); }
@@ -768,7 +906,7 @@ function syncTop(){ $('bpm').value = project.bpm; $('bpmVal').textContent = proj
 load(); syncTop();
 try { if (localStorage.getItem(SAVE_KEY + '.hint')) $('hint').hidden = true; } catch (e) {}
 sel = project.tracks[0] ? project.tracks[0].id : null;
-renderTracks(); renderEditor(); restoreFiles();
+renderTracks(); renderEditor(); restoreFiles(); renderLibrary();
 (function iosHint(){
   const ua = navigator.userAgent, isIOS = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
   const standalone = window.navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches;
