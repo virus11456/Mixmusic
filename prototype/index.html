@@ -1,0 +1,640 @@
+<title>Mixmusic</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=DM+Mono:wght@400;500&display=swap">
+<style>
+/* 版面：單頁三段式 — 上方主控列、中間軌道列表、下方「正在編輯」面板。所有顏色和字型都從這裡的 token 來。 */
+:root{
+  --bg:#eef1f5; --surface:#ffffff; --surface-2:#f6f8fb; --line:#d9dfe7;
+  --fg:#1b2430; --muted:#5b6878; --accent:#e8572a; --accent-fg:#ffffff;
+  --cell:#e3e8ef; --cell-beat:#d3dae4; --now:#1b2430;
+  --font-body:'Noto Sans TC',system-ui,-apple-system,'PingFang TC','Microsoft JhengHei',sans-serif;
+  --font-mono:'DM Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+  --shadow:0 1px 2px rgba(20,30,45,.06),0 6px 20px rgba(20,30,45,.06);
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#141820; --surface:#1e2430; --surface-2:#252c3a; --line:#343d4d;
+  --fg:#e8ecf2; --muted:#8f9bab; --accent:#ff7a4d; --accent-fg:#1b1410;
+  --cell:#2b3443; --cell-beat:#333d4e; --now:#ffffff;
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.35); color-scheme:dark } }
+:root[data-theme="dark"]{
+  --bg:#141820; --surface:#1e2430; --surface-2:#252c3a; --line:#343d4d;
+  --fg:#e8ecf2; --muted:#8f9bab; --accent:#ff7a4d; --accent-fg:#1b1410;
+  --cell:#2b3443; --cell-beat:#333d4e; --now:#ffffff;
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.35); color-scheme:dark }
+
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{background:var(--bg);color:var(--fg);font-family:var(--font-body);font-size:15px;line-height:1.5;margin:0}
+#app{max-width:1080px;margin:0 auto;padding-block:16px 48px;padding-inline:16px;display:flex;flex-direction:column;gap:14px}
+button{font:inherit;color:inherit;cursor:pointer;border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:8px 14px;min-height:40px}
+button:hover{background:var(--surface-2)}
+button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+input[type=range]{accent-color:var(--accent);width:100%;height:28px;margin:0}
+.mono{font-family:var(--font-mono);font-variant-numeric:tabular-nums}
+
+/* 主控列 */
+.topbar{background:var(--surface);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);padding:12px 14px;display:flex;flex-wrap:wrap;align-items:center;gap:12px 18px}
+.brand{font-weight:700;font-size:20px;letter-spacing:.01em;display:flex;align-items:center;gap:8px}
+.brand .tag{font-size:11px;font-weight:500;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:1px 8px;letter-spacing:.08em}
+.play{background:var(--accent);color:var(--accent-fg);border-color:transparent;font-weight:700;font-size:17px;padding:10px 22px;min-width:120px;border-radius:12px}
+.play:hover{filter:brightness(1.06);background:var(--accent)}
+.ctl{display:flex;align-items:center;gap:10px;min-width:180px;flex:1 1 180px;font-size:14px;color:var(--muted)}
+.ctl input{flex:1}
+.ctl .val{color:var(--fg);min-width:3ch;text-align:right}
+.actions{display:flex;flex-wrap:wrap;gap:8px;margin-left:auto}
+.actions button{font-size:14px}
+.hint{background:var(--surface-2);border:1px dashed var(--line);border-radius:12px;padding:10px 14px;color:var(--muted);font-size:14px;display:flex;justify-content:space-between;gap:12px;align-items:center}
+.hint button{min-height:32px;padding:4px 10px;font-size:13px}
+
+/* 軌道列表 */
+.tracks{display:flex;flex-direction:column;gap:8px}
+.track{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:10px 12px;display:grid;grid-template-columns:160px minmax(0,1fr) 220px;gap:12px;align-items:center;cursor:pointer;border-left:6px solid var(--tc)}
+.track:hover{background:var(--surface-2)}
+.track.selected{box-shadow:0 0 0 2px var(--tc) inset, var(--shadow)}
+.track.quiet{opacity:.55}
+.t-head{display:flex;align-items:center;gap:8px;min-width:0}
+.t-name{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.t-type{font-size:12px;color:var(--muted);white-space:nowrap}
+.ov{display:grid;grid-template-columns:repeat(16,minmax(0,1fr));gap:3px;min-width:0}
+.ov .cell{height:22px;border-radius:4px;background:var(--cell)}
+.ov .cell.beat{background:var(--cell-beat)}
+.ov .cell.on{background:var(--tc)}
+.ov .cell.now{outline:2px solid var(--now);outline-offset:-2px}
+.ov-text{font-size:13px;color:var(--muted);display:flex;align-items:center;gap:8px;min-width:0}
+.ov-text span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.waves{display:inline-flex;gap:3px;align-items:flex-end;height:22px}
+.waves i{display:block;width:4px;background:var(--tc);border-radius:2px;height:30%;opacity:.7}
+.playing .waves i{animation:wave 1.1s ease-in-out infinite}
+.waves i:nth-child(2){animation-delay:.15s}.waves i:nth-child(3){animation-delay:.3s}.waves i:nth-child(4){animation-delay:.45s}.waves i:nth-child(5){animation-delay:.6s}
+@keyframes wave{0%,100%{height:30%}50%{height:100%}}
+.t-mix{display:flex;align-items:center;gap:8px}
+.t-mix input{flex:1}
+.t-mix .ms{display:flex;gap:4px}
+.ms button{min-height:32px;min-width:32px;padding:0 8px;font-size:12px;font-weight:700;border-radius:8px}
+.ms button.active{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.add-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.menu{display:flex;gap:8px;flex-wrap:wrap}
+.menu button{border-radius:999px}
+
+/* 編輯面板 */
+.editor{background:var(--surface);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);padding:16px;display:flex;flex-direction:column;gap:16px;border-top:6px solid var(--tc,var(--line))}
+.editor .empty{color:var(--muted);margin:0;text-align:center;padding-block:20px}
+.e-head{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
+.e-head .eyebrow{font-size:12px;color:var(--muted);letter-spacing:.08em}
+.e-head input[type=text]{font:inherit;font-weight:700;font-size:18px;color:inherit;background:transparent;border:1px solid transparent;border-radius:8px;padding:4px 8px;min-width:0;width:200px}
+.e-head input[type=text]:hover,.e-head input[type=text]:focus{border-color:var(--line);background:var(--surface-2)}
+.e-head .right{margin-left:auto;display:flex;gap:8px}
+.danger{color:#c43d2b;font-size:13px}
+.sec{display:flex;flex-direction:column;gap:10px}
+.sec-title{font-size:13px;font-weight:700;color:var(--muted);letter-spacing:.06em;display:flex;align-items:center;gap:8px}
+.sec-title small{font-weight:400;letter-spacing:0}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chips button{border-radius:999px;font-size:14px;min-height:36px;padding:6px 14px}
+.chips button.active{background:var(--tc);border-color:var(--tc);color:#fff;font-weight:700}
+.sliders{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px 18px}
+.sl{display:flex;flex-direction:column;gap:2px;background:var(--surface-2);border-radius:10px;padding:8px 12px}
+.sl-top{display:flex;justify-content:space-between;font-size:14px}
+.sl-desc{color:var(--muted)}
+.gridwrap{overflow-x:auto}
+.grid{display:grid;grid-template-columns:52px repeat(16,minmax(22px,1fr));gap:4px;min-width:460px}
+.grid .lab{font-size:12px;color:var(--muted);display:flex;align-items:center;justify-content:flex-end;padding-right:6px;white-space:nowrap}
+.grid .cell{aspect-ratio:1;border-radius:6px;background:var(--cell);border:0;padding:0;min-height:0;cursor:pointer;touch-action:manipulation}
+.grid .cell.beat{background:var(--cell-beat)}
+.grid .cell.on{background:var(--tc)}
+.grid .cell:hover{filter:brightness(.92)}
+.grid .cnt{font-size:11px;color:var(--muted);text-align:center;font-family:var(--font-mono)}
+.keys{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:6px}
+.keys button{display:flex;flex-direction:column;align-items:center;gap:2px;min-height:56px;padding:6px 2px;border-radius:10px;font-weight:700}
+.keys button small{font-weight:400;color:var(--muted);font-family:var(--font-mono);font-size:11px}
+.keys button.down{background:var(--tc);border-color:var(--tc);color:#fff}
+.keys button.down small{color:#fff}
+.toggle{display:flex;align-items:center;gap:8px;font-size:14px;cursor:pointer}
+.toggle input{width:18px;height:18px;accent-color:var(--tc)}
+.drop{border:2px dashed var(--line);border-radius:12px;padding:20px;text-align:center;color:var(--muted);background:var(--surface-2)}
+.drop.over{border-color:var(--tc);color:var(--fg)}
+.drop input{display:none}
+.drop .btn{display:inline-block;margin-top:8px}
+canvas.wave{width:100%;height:80px;display:block;background:var(--surface-2);border-radius:10px}
+.note{font-size:13px;color:var(--muted)}
+
+/* 提示與對話框 */
+.toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:10px 16px;border-radius:10px;font-size:14px;max-width:calc(100vw - 32px);box-shadow:var(--shadow);z-index:20}
+.backdrop{position:fixed;inset:0;background:rgba(10,14,20,.45);display:flex;align-items:center;justify-content:center;padding:16px;z-index:30}
+.modal{background:var(--surface);border-radius:16px;padding:20px;max-width:440px;width:100%;display:flex;flex-direction:column;gap:12px;box-shadow:var(--shadow)}
+.modal h2{margin:0;font-size:18px}
+.linkbox{display:flex;gap:8px}
+.linkbox input{flex:1;font:inherit;font-family:var(--font-mono);color:inherit;background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:8px 10px;min-width:0}
+
+@media (max-width:720px){
+  .track{grid-template-columns:1fr;gap:8px}
+  .t-mix{order:3}
+  .ctl{min-width:140px}
+  .actions{margin-left:0;width:100%}
+  .grid{grid-template-columns:44px repeat(16,minmax(18px,1fr))}
+  .keys button{font-size:13px;min-height:50px}
+}
+@media (prefers-reduced-motion: reduce){ .playing .waves i{animation:none;height:60%} }
+</style>
+
+<div id="app">
+  <header class="topbar">
+    <div class="brand">Mixmusic <span class="tag">原型</span></div>
+    <button id="playBtn" class="play" aria-label="播放">▶ 播放</button>
+    <label class="ctl" for="bpm">速度 <input type="range" id="bpm" min="60" max="180" step="1" value="110"> <span class="val mono" id="bpmVal">110</span></label>
+    <label class="ctl" for="master">總音量 <input type="range" id="master" min="0" max="100" step="1" value="80"></label>
+    <div class="actions">
+      <button id="shareBtn">分享</button>
+      <button id="exportBtn">匯出 WAV</button>
+      <button id="resetBtn">還原</button>
+    </div>
+  </header>
+
+  <div id="hint" class="hint"><span>先按 <b>▶ 播放</b> 聽聽看，再點任何一軌、改任何一個格子或滑桿。怎麼亂調都不會壞。</span><button id="hintClose">知道了</button></div>
+
+  <section id="tracks" class="tracks" aria-label="軌道列表"></section>
+
+  <div class="add-row">
+    <button id="addBtn">＋ 新增軌道</button>
+    <div id="addMenu" class="menu" hidden>
+      <button data-type="synth">🎹 合成器（彈旋律）</button>
+      <button data-type="drum">🥁 鼓（打節奏）</button>
+      <button data-type="texture">🌧 環境音（雨、風、海）</button>
+      <button data-type="sample">📁 上傳我的音檔</button>
+    </div>
+  </div>
+
+  <section id="editor" class="editor" aria-label="正在編輯"></section>
+
+  <div id="toast" class="toast" hidden></div>
+  <div id="modal" class="backdrop" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+      <h2 id="modalTitle">分享這首</h2>
+      <p class="note" style="margin:0">別人打開連結可以直接聽，也能按「複製一份來改」接著玩。</p>
+      <div class="linkbox"><input id="shareLink" type="text" readonly value="https://mixmusic.app/s/k7Qx2m"><button id="copyLink">複製</button></div>
+      <p class="note" style="margin:0">原型版：這個連結只是示意，正式版才會真的存起來。</p>
+      <div style="display:flex;justify-content:flex-end"><button id="modalClose">關閉</button></div>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+'use strict';
+const STEPS = 16;
+const SCALE = [60,62,64,67,69,72,74,76];
+const SCALE_NAMES = ['Do','Re','Mi','Sol','La','高Do','高Re','高Mi'];
+const KEYS = ['a','s','d','f','g','h','j','k'];
+const DRUMS = [{id:'kick',name:'大鼓'},{id:'snare',name:'小鼓'},{id:'hat',name:'Hi-hat'},{id:'clap',name:'拍手'}];
+const COLORS = ['#f5a524','#3d7cf4','#1fb5a3','#a06cf0','#ef5b7a','#4caf6e','#e0953a','#5b8def'];
+const TYPE_NAME = {drum:'鼓', synth:'合成器', texture:'環境音', sample:'我的音檔'};
+const SHAPES = [['sine','圓潤'],['square','明亮'],['sawtooth','粗糙'],['triangle','柔和']];
+
+const PATTERNS = {
+  '基本四四拍': {kick:[0,4,8,12], snare:[4,12], hat:[0,2,4,6,8,10,12,14], clap:[]},
+  '嘻哈':       {kick:[0,7,10], snare:[4,12], hat:[2,6,10,14,15], clap:[12]},
+  '電子舞曲':   {kick:[0,4,8,12], snare:[], hat:[2,6,10,14], clap:[4,12]},
+  '慢板':       {kick:[0,10], snare:[8], hat:[4,12], clap:[]},
+};
+const SYNTH_PRESETS = {
+  '溫暖貝斯': {shape:'triangle', pitch:-12, brightness:0.35, attack:0.03, release:0.25, vibrato:0},
+  '亮鈴聲':   {shape:'sine',     pitch:12,  brightness:0.9,  attack:0.01, release:0.7,  vibrato:0.15},
+  '復古電玩': {shape:'square',   pitch:0,   brightness:0.7,  attack:0.01, release:0.1,  vibrato:0},
+  '夢幻合成': {shape:'sawtooth', pitch:0,   brightness:0.4,  attack:0.5,  release:0.9,  vibrato:0.4},
+};
+const TEXTURES = {
+  '雨聲':   {noise:'white', filter:'bandpass', minHz:800,  maxHz:6000, rate:7,    gain:0.5},
+  '風聲':   {noise:'brown', filter:'lowpass',  minHz:150,  maxHz:1500, rate:0.3,  gain:1.6},
+  '海浪':   {noise:'brown', filter:'lowpass',  minHz:120,  maxHz:1200, rate:0.12, gain:1.8},
+  '白噪音': {noise:'white', filter:'lowpass',  minHz:400,  maxHz:16000,rate:1,    gain:0.4},
+};
+
+let uidN = 0;
+const uid = () => 't' + Date.now().toString(36) + (uidN++).toString(36);
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+const $ = (id) => document.getElementById(id);
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+
+function defaultMixer(){ return {volume:0.8, pan:0, low:0, high:0, reverb:0, delay:0, distortion:0, mute:false, solo:false}; }
+function emptyGrid(rows){ return Array.from({length:rows}, () => Array(STEPS).fill(0)); }
+function patternGrid(name){ const p = PATTERNS[name]; return DRUMS.map(d => { const row = Array(STEPS).fill(0); (p[d.id]||[]).forEach(s => row[s] = 1); return row; }); }
+function nextColor(){ const used = project.tracks.map(t => t.color); return COLORS.find(c => !used.includes(c)) || COLORS[project.tracks.length % COLORS.length]; }
+
+function makeTrack(type){
+  const base = {id: uid(), type, name: TYPE_NAME[type], color: nextColor(), mixer: defaultMixer()};
+  if (type === 'drum') return Object.assign(base, {levels:{kick:0.9,snare:0.7,hat:0.5,clap:0.6}, tune:0, decay:1, grid: patternGrid('基本四四拍')});
+  if (type === 'synth') return Object.assign(base, {sound: {...SYNTH_PRESETS['復古電玩']}, record:false, grid: emptyGrid(8)});
+  if (type === 'texture') return Object.assign(base, {preset:'雨聲', params:{density:0.6, movement:0.3}, mixer:{...defaultMixer(), volume:0.35}});
+  return Object.assign(base, {loop:true, speed:1, start:0, fileName:'', duration:0});
+}
+function defaultProject(){
+  project = {version:1, name:'我的第一首', bpm:110, master:{volume:0.8}, tracks:[]};
+  const drum = makeTrack('drum'); drum.name = '鼓'; project.tracks.push(drum);
+  const bass = makeTrack('synth'); bass.name = '貝斯'; bass.sound = {...SYNTH_PRESETS['溫暖貝斯']}; bass.mixer.volume = 0.7; project.tracks.push(bass);
+  [[0,0],[0,4],[2,6],[3,8],[2,12],[4,14]].forEach(([p,s]) => bass.grid[p][s] = 1);
+  const rain = makeTrack('texture'); rain.name = '雨聲'; rain.mixer.reverb = 0.2; project.tracks.push(rain);
+  return project;
+}
+
+/* ---------- 狀態 ---------- */
+let project = null, sel = null;
+const SAVE_KEY = 'mixmusic.prototype.v1';
+function load(){
+  try { const raw = localStorage.getItem(SAVE_KEY); if (raw) { const p = JSON.parse(raw); if (p && p.version === 1 && Array.isArray(p.tracks)) { project = p; return; } } } catch (e) {}
+  defaultProject();
+}
+let saveT = null;
+function save(){ clearTimeout(saveT); saveT = setTimeout(() => { try { localStorage.setItem(SAVE_KEY, JSON.stringify(project)); } catch (e) {} }, 300); }
+const track = (id) => project.tracks.find(t => t.id === id);
+
+/* ---------- 聲音引擎（Web Audio） ---------- */
+let ctx = null, master = null, reverbNode = null, delayNode = null;
+const nodes = new Map();
+const noiseBuf = {};
+const samples = new Map();
+
+function ensureAudio(){
+  if (ctx) return;
+  ctx = new (window.AudioContext || window.webkitAudioContext)();
+  master = ctx.createGain(); master.gain.value = project.master.volume;
+  const comp = ctx.createDynamicsCompressor(); comp.threshold.value = -12; comp.ratio.value = 6;
+  master.connect(comp).connect(ctx.destination);
+  noiseBuf.white = makeNoise('white'); noiseBuf.brown = makeNoise('brown');
+  reverbNode = ctx.createConvolver(); reverbNode.buffer = makeImpulse(2.2); reverbNode.connect(master);
+  delayNode = ctx.createDelay(2); delayNode.delayTime.value = stepDur() * 3;
+  const fb = ctx.createGain(); fb.gain.value = 0.38; const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 2800;
+  delayNode.connect(fb).connect(delayNode); delayNode.connect(lp).connect(master);
+  project.tracks.forEach(getChain);
+}
+function makeNoise(kind){
+  const len = ctx.sampleRate * 2, buf = ctx.createBuffer(1, len, ctx.sampleRate), d = buf.getChannelData(0); let last = 0;
+  for (let i = 0; i < len; i++) { const w = Math.random() * 2 - 1; if (kind === 'brown') { last = (last + 0.02 * w) / 1.02; d[i] = last * 3.5; } else d[i] = w; }
+  return buf;
+}
+function makeImpulse(sec){
+  const len = ctx.sampleRate * sec, buf = ctx.createBuffer(2, len, ctx.sampleRate);
+  for (let c = 0; c < 2; c++) { const d = buf.getChannelData(c); for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2.5); }
+  return buf;
+}
+function distCurve(amount){
+  const n = 256, curve = new Float32Array(n), k = amount * 60;
+  for (let i = 0; i < n; i++) { const x = i * 2 / n - 1; curve[i] = k ? (1 + k) * x / (1 + k * Math.abs(x)) : x; }
+  return curve;
+}
+function getChain(t){
+  if (!ctx) return null;
+  let c = nodes.get(t.id); if (c) return c;
+  const input = ctx.createGain(), dist = ctx.createWaveShaper(), low = ctx.createBiquadFilter(), high = ctx.createBiquadFilter();
+  dist.oversample = '2x'; low.type = 'lowshelf'; low.frequency.value = 250; high.type = 'highshelf'; high.frequency.value = 3500;
+  const pan = ctx.createStereoPanner ? ctx.createStereoPanner() : null, vol = ctx.createGain(), rev = ctx.createGain(), dly = ctx.createGain();
+  input.connect(dist); dist.connect(low); low.connect(high);
+  let last = high; if (pan) { high.connect(pan); last = pan; }
+  last.connect(vol); vol.connect(master); vol.connect(rev); rev.connect(reverbNode); vol.connect(dly); dly.connect(delayNode);
+  c = {input, dist, low, high, pan, vol, rev, dly, live: null}; nodes.set(t.id, c); applyMixer(t); return c;
+}
+function effectiveVolume(t){ const anySolo = project.tracks.some(x => x.mixer.solo); if (t.mixer.mute || (anySolo && !t.mixer.solo)) return 0; return t.mixer.volume; }
+function applyMixer(t){
+  const c = nodes.get(t.id); if (!c) return; const m = t.mixer, now = ctx.currentTime;
+  c.vol.gain.setTargetAtTime(effectiveVolume(t), now, 0.02);
+  c.low.gain.value = m.low; c.high.gain.value = m.high; if (c.pan) c.pan.pan.value = m.pan;
+  c.rev.gain.value = m.reverb * 0.9; c.dly.gain.value = m.delay * 0.7;
+  c.dist.curve = distCurve(m.distortion); c.input.gain.value = 1 - m.distortion * 0.5;
+}
+function applyAllMix(){ project.tracks.forEach(applyMixer); }
+
+const tuneFactor = (t) => Math.pow(2, t.tune / 12);
+function noiseSource(kind){ const s = ctx.createBufferSource(); s.buffer = noiseBuf[kind]; s.loop = true; return s; }
+const DRUM_FN = {
+  kick(dest, time, t){ const f = tuneFactor(t), d = t.decay, o = ctx.createOscillator(), g = ctx.createGain();
+    o.frequency.setValueAtTime(170 * f, time); o.frequency.exponentialRampToValueAtTime(42 * f, time + 0.12 * d);
+    g.gain.setValueAtTime(t.levels.kick * 1.1, time); g.gain.exponentialRampToValueAtTime(0.001, time + 0.35 * d);
+    o.connect(g).connect(dest); o.start(time); o.stop(time + 0.4 * d); },
+  snare(dest, time, t){ const f = tuneFactor(t), d = t.decay, n = noiseSource('white'), bp = ctx.createBiquadFilter(), g = ctx.createGain();
+    bp.type = 'bandpass'; bp.frequency.value = 1900 * f; bp.Q.value = 0.8;
+    g.gain.setValueAtTime(t.levels.snare, time); g.gain.exponentialRampToValueAtTime(0.001, time + 0.2 * d);
+    n.connect(bp).connect(g).connect(dest); n.start(time); n.stop(time + 0.25 * d);
+    const o = ctx.createOscillator(), og = ctx.createGain(); o.type = 'triangle'; o.frequency.value = 185 * f;
+    og.gain.setValueAtTime(t.levels.snare * 0.6, time); og.gain.exponentialRampToValueAtTime(0.001, time + 0.1 * d);
+    o.connect(og).connect(dest); o.start(time); o.stop(time + 0.12 * d); },
+  hat(dest, time, t){ const f = tuneFactor(t), d = t.decay, n = noiseSource('white'), hp = ctx.createBiquadFilter(), g = ctx.createGain();
+    hp.type = 'highpass'; hp.frequency.value = 7000 * f;
+    g.gain.setValueAtTime(t.levels.hat * 0.7, time); g.gain.exponentialRampToValueAtTime(0.001, time + 0.07 * d);
+    n.connect(hp).connect(g).connect(dest); n.start(time); n.stop(time + 0.1 * d); },
+  clap(dest, time, t){ const f = tuneFactor(t), d = t.decay, n = noiseSource('white'), bp = ctx.createBiquadFilter(), g = ctx.createGain();
+    bp.type = 'bandpass'; bp.frequency.value = 1300 * f; bp.Q.value = 1.2; const L = t.levels.clap;
+    g.gain.setValueAtTime(0, time);
+    [0, 0.011, 0.022].forEach(o => { g.gain.setValueAtTime(L, time + o); g.gain.linearRampToValueAtTime(L * 0.3, time + o + 0.01); });
+    g.gain.setValueAtTime(L, time + 0.033); g.gain.exponentialRampToValueAtTime(0.001, time + 0.033 + 0.18 * d);
+    n.connect(bp).connect(g).connect(dest); n.start(time); n.stop(time + 0.3 * d); },
+};
+function playNote(dest, time, t, pitchIdx, dur){
+  const s = t.sound, midi = SCALE[pitchIdx] + s.pitch, freq = 440 * Math.pow(2, (midi - 69) / 12);
+  const o = ctx.createOscillator(), filt = ctx.createBiquadFilter(), g = ctx.createGain();
+  o.type = s.shape; o.frequency.value = freq; filt.type = 'lowpass'; filt.frequency.value = clamp(freq * 1.5 + 200 * Math.pow(40, s.brightness), 200, 16000); filt.Q.value = 1;
+  const a = 0.005 + s.attack * 0.6, r = 0.04 + s.release * 1.6, hold = time + Math.max(a, dur), lvl = s.shape === 'sine' ? 0.6 : 0.35;
+  g.gain.setValueAtTime(0, time); g.gain.linearRampToValueAtTime(lvl, time + a); g.gain.setValueAtTime(lvl, hold); g.gain.setTargetAtTime(0, hold, r / 4);
+  if (s.vibrato > 0) { const lfo = ctx.createOscillator(), lg = ctx.createGain(); lfo.frequency.value = 5.5; lg.gain.value = s.vibrato * 45; lfo.connect(lg).connect(o.detune); lfo.start(time); lfo.stop(hold + r + 0.1); }
+  o.connect(filt).connect(g).connect(dest); o.start(time); o.stop(hold + r + 0.1);
+}
+function startTexture(t){
+  const c = getChain(t); if (!c || c.live) return; const def = TEXTURES[t.preset];
+  const src = noiseSource(def.noise), filt = ctx.createBiquadFilter(), g = ctx.createGain(), lfo = ctx.createOscillator(), lfoG = ctx.createGain();
+  filt.type = def.filter; filt.Q.value = def.filter === 'bandpass' ? 0.6 : 0.8; lfo.frequency.value = def.rate;
+  lfo.connect(lfoG).connect(g.gain); src.connect(filt).connect(g).connect(c.input); src.start(); lfo.start();
+  c.live = {src, filt, g, lfo, lfoG, kind: 'texture'}; updateTexture(t);
+}
+function updateTexture(t){
+  const c = nodes.get(t.id); if (!c || !c.live) return; const def = TEXTURES[t.preset], depth = t.params.movement;
+  c.live.filt.frequency.value = def.minHz * Math.pow(def.maxHz / def.minHz, t.params.density);
+  c.live.g.gain.value = def.gain * (1 - depth * 0.5); c.live.lfoG.gain.value = def.gain * depth * 0.5;
+}
+function startSample(t){
+  const c = getChain(t), buf = samples.get(t.id); if (!c || c.live || !buf) return;
+  const src = ctx.createBufferSource(); src.buffer = buf; src.loop = t.loop; src.loopStart = t.start; src.loopEnd = buf.duration; src.playbackRate.value = t.speed;
+  src.connect(c.input); src.start(0, t.start); c.live = {src, kind: 'sample'};
+}
+function stopLive(t){ const c = nodes.get(t.id); if (!c || !c.live) return; try { c.live.src.stop(); if (c.live.lfo) c.live.lfo.stop(); } catch (e) {} c.live = null; }
+function restartLive(t){ if (!playing) return; stopLive(t); if (t.type === 'texture') startTexture(t); if (t.type === 'sample') startSample(t); }
+
+/* ---------- 播放排程 ---------- */
+let playing = false, step = 0, nextTime = 0, timer = null, uiQueue = [], shownStep = -1;
+const stepDur = () => 60 / project.bpm / 4;
+function start(){
+  ensureAudio(); ctx.resume(); playing = true; step = 0; nextTime = ctx.currentTime + 0.05; uiQueue = [];
+  project.tracks.forEach(t => { if (t.type === 'texture') startTexture(t); if (t.type === 'sample') startSample(t); });
+  timer = setInterval(tick, 25); requestAnimationFrame(uiLoop);
+  $('playBtn').textContent = '■ 停止'; document.body.classList.add('playing'); hideHint();
+}
+function stop(){ playing = false; clearInterval(timer); project.tracks.forEach(stopLive); setPlayhead(-1); $('playBtn').textContent = '▶ 播放'; document.body.classList.remove('playing'); }
+function tick(){ while (nextTime < ctx.currentTime + 0.15) { scheduleStep(step, nextTime); uiQueue.push({step, time: nextTime}); nextTime += stepDur(); step = (step + 1) % STEPS; } }
+function scheduleStep(s, time){
+  for (const t of project.tracks) {
+    const c = getChain(t); if (!c) continue;
+    if (t.type === 'drum') DRUMS.forEach((d, i) => { if (t.grid[i][s]) DRUM_FN[d.id](c.input, time, t); });
+    else if (t.type === 'synth') t.grid.forEach((row, p) => { if (row[s]) playNote(c.input, time, t, p, stepDur() * 0.9); });
+  }
+}
+function uiLoop(){ if (!playing) return; while (uiQueue.length && uiQueue[0].time <= ctx.currentTime) { shownStep = uiQueue.shift().step; setPlayhead(shownStep); } requestAnimationFrame(uiLoop); }
+function setPlayhead(s){
+  document.querySelectorAll('.cell.now').forEach(c => c.classList.remove('now'));
+  const grid = document.querySelector('.grid'); if (grid) grid.dataset.now = s;
+  if (s >= 0) document.querySelectorAll('.ov .cell[data-step="' + s + '"]').forEach(c => c.classList.add('now'));
+}
+(function stepCss(){ let css = ''; for (let i = 0; i < STEPS; i++) css += `.grid[data-now="${i}"] .cell[data-step="${i}"]{outline:2px solid var(--now);outline-offset:-2px}`; const st = document.createElement('style'); st.textContent = css; document.head.appendChild(st); })();
+
+function preview(t, row){
+  ensureAudio(); ctx.resume(); const c = getChain(t), now = ctx.currentTime + 0.01;
+  if (t.type === 'drum') DRUM_FN[DRUMS[row].id](c.input, now, t);
+  else if (t.type === 'synth') playNote(c.input, now, t, row, 0.15);
+}
+
+/* ---------- 白話描述 ---------- */
+const lvl3 = (v, a, b, words) => v < a ? words[0] : v < b ? words[1] : words[2];
+const D = {
+  volume: v => Math.round(v * 100) + '%',
+  pan: v => Math.abs(v) < 0.15 ? '中間' : v < 0 ? '偏左' : '偏右',
+  low: v => lvl3(v, -4, 4, ['薄一點', '一般', '厚實']),
+  high: v => lvl3(v, -4, 4, ['暗一點', '一般', '清亮']),
+  reverb: v => lvl3(v, 0.1, 0.5, ['乾', '有一點空間', '很空曠']),
+  delay: v => lvl3(v, 0.1, 0.5, ['沒有回音', '一點回音', '回音很多']),
+  distortion: v => lvl3(v, 0.1, 0.5, ['乾淨', '有點粗', '很髒']),
+  brightness: v => lvl3(v, 0.33, 0.66, ['悶悶的', '剛好', '很亮']),
+  attack: v => lvl3(v, 0.15, 0.5, ['馬上出來', '慢慢出來', '很慢浮出']),
+  release: v => lvl3(v, 0.2, 0.6, ['短促', '中等', '拖很長']),
+  vibrato: v => lvl3(v, 0.05, 0.4, ['沒有', '一點點', '明顯']),
+  pitch: v => v === 0 ? '原音高' : (v > 0 ? '高 ' : '低 ') + Math.abs(v) + ' 格',
+  tune: v => v === 0 ? '原音高' : (v > 0 ? '高 ' : '低 ') + Math.abs(v) + ' 格',
+  decay: v => lvl3(v, 0.8, 1.3, ['短', '一般', '長']),
+  density: v => lvl3(v, 0.33, 0.66, ['低沉', '中等', '尖細']),
+  movement: v => lvl3(v, 0.2, 0.6, ['平穩', '有起伏', '起伏很大']),
+  speed: v => Math.abs(v - 1) < 0.02 ? '原速' : Math.round(v * 100) + '%',
+  start: v => v.toFixed(1) + ' 秒',
+};
+
+/* ---------- 畫面：軌道列表 ---------- */
+let sid = 0;
+function slider(t, key, label, value, min, max, stp, onInput){
+  const wrap = el('label', 'sl'), top = el('div', 'sl-top'), desc = el('span', 'sl-desc', (D[key] || String)(value)), inp = el('input');
+  top.append(el('span', 'sl-name', label), desc);
+  inp.type = 'range'; inp.id = 'sl_' + t.id + '_' + key; inp.min = min; inp.max = max; inp.step = stp; inp.value = value; wrap.htmlFor = inp.id;
+  inp.addEventListener('input', () => { const v = parseFloat(inp.value); onInput(v); desc.textContent = (D[key] || String)(v); save(); });
+  wrap.append(top, inp); return wrap;
+}
+function chips(options, current, onPick){
+  const box = el('div', 'chips');
+  options.forEach(([val, label]) => { const b = el('button', current === val ? 'active' : '', label); b.type = 'button'; b.addEventListener('click', () => onPick(val)); box.append(b); });
+  return box;
+}
+function renderTracks(){
+  const box = $('tracks'); box.innerHTML = '';
+  project.tracks.forEach(t => {
+    const row = el('div', 'track' + (t.id === sel ? ' selected' : '') + (effectiveVolume(t) === 0 ? ' quiet' : '')); row.style.setProperty('--tc', t.color);
+    row.setAttribute('role', 'button'); row.tabIndex = 0;
+    const head = el('div', 't-head'); head.append(el('span', 't-name', t.name)); if (t.name !== TYPE_NAME[t.type]) head.append(el('span', 't-type', TYPE_NAME[t.type]));
+    let ov;
+    if (t.type === 'drum' || t.type === 'synth') {
+      ov = el('div', 'ov');
+      for (let s = 0; s < STEPS; s++) { const c = el('div', 'cell' + (s % 4 === 0 ? ' beat' : '') + (t.grid.some(r => r[s]) ? ' on' : '')); c.dataset.step = s; ov.append(c); }
+    } else {
+      ov = el('div', 'ov-text'); const w = el('span', 'waves'); for (let i = 0; i < 5; i++) w.append(el('i'));
+      ov.append(w, el('span', null, t.type === 'texture' ? t.preset + '，一直持續' : (t.fileName ? t.fileName : '還沒有檔案，點這一軌上傳')));
+    }
+    const mix = el('div', 't-mix');
+    const vol = slider(t, 'volume', '音量', t.mixer.volume, 0, 1, 0.01, v => { t.mixer.volume = v; applyMixer(t); });
+    vol.classList.add('vol');
+    const ms = el('div', 'ms');
+    const m = el('button', t.mixer.mute ? 'active' : '', 'M'); m.title = '靜音'; m.type = 'button';
+    const s = el('button', t.mixer.solo ? 'active' : '', 'S'); s.title = '只聽這軌'; s.type = 'button';
+    m.addEventListener('click', e => { e.stopPropagation(); t.mixer.mute = !t.mixer.mute; applyAllMix(); save(); renderTracks(); });
+    s.addEventListener('click', e => { e.stopPropagation(); t.mixer.solo = !t.mixer.solo; applyAllMix(); save(); renderTracks(); });
+    ms.append(m, s); mix.append(vol, ms);
+    row.append(head, ov, mix);
+    row.addEventListener('click', e => { if (e.target.closest('.sl')) return; select(t.id); });
+    row.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); select(t.id); } });
+    box.append(row);
+  });
+  if (playing) setPlayhead(shownStep);
+}
+function select(id){ sel = id; renderTracks(); renderEditor(); }
+
+/* ---------- 畫面：編輯面板 ---------- */
+function buildGrid(t, rowLabels, rowToIndex, onPreview){
+  const wrap = el('div', 'gridwrap'), grid = el('div', 'grid'); grid.dataset.now = -1;
+  grid.append(el('div'));
+  for (let s = 0; s < STEPS; s++) grid.append(el('div', 'cnt', s % 4 === 0 ? String(s / 4 + 1) : '·'));
+  let painting = null;
+  rowLabels.forEach((label, r) => {
+    const idx = rowToIndex(r); grid.append(el('div', 'lab', label));
+    for (let s = 0; s < STEPS; s++) {
+      const c = el('button', 'cell' + (s % 4 === 0 ? ' beat' : '') + (t.grid[idx][s] ? ' on' : '')); c.type = 'button'; c.dataset.step = s;
+      c.setAttribute('aria-label', label + ' 第 ' + (s + 1) + ' 格');
+      const set = (v) => { t.grid[idx][s] = v; c.classList.toggle('on', !!v); };
+      c.addEventListener('pointerdown', e => { e.preventDefault(); const v = t.grid[idx][s] ? 0 : 1; set(v); painting = v; if (v) onPreview(idx); save(); refreshOverview(t); });
+      c.addEventListener('pointerenter', () => { if (painting !== null) { set(painting); save(); refreshOverview(t); } });
+      c.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); set(t.grid[idx][s] ? 0 : 1); save(); refreshOverview(t); } });
+      grid.append(c);
+    }
+  });
+  window.addEventListener('pointerup', () => { painting = null; });
+  wrap.append(grid); return wrap;
+}
+function refreshOverview(t){
+  const rows = [...document.querySelectorAll('.track')]; const i = project.tracks.indexOf(t); const row = rows[i]; if (!row) return;
+  row.querySelectorAll('.ov .cell').forEach((c, s) => c.classList.toggle('on', t.grid.some(r => r[s])));
+}
+function section(title, sub){ const s = el('div', 'sec'); const h = el('div', 'sec-title', title); if (sub) h.append(el('small', null, sub)); s.append(h); return s; }
+function mixerSection(t){
+  const sec = section('混音', '這一軌在整體裡的位置和效果'), g = el('div', 'sliders');
+  g.append(
+    slider(t, 'low', '厚實度', t.mixer.low, -12, 12, 1, v => { t.mixer.low = v; applyMixer(t); }),
+    slider(t, 'high', '清亮度', t.mixer.high, -12, 12, 1, v => { t.mixer.high = v; applyMixer(t); }),
+    slider(t, 'pan', '左右', t.mixer.pan, -1, 1, 0.05, v => { t.mixer.pan = v; applyMixer(t); }),
+    slider(t, 'reverb', '空間感', t.mixer.reverb, 0, 1, 0.01, v => { t.mixer.reverb = v; applyMixer(t); }),
+    slider(t, 'delay', '回音', t.mixer.delay, 0, 1, 0.01, v => { t.mixer.delay = v; applyMixer(t); }),
+    slider(t, 'distortion', '破音', t.mixer.distortion, 0, 1, 0.01, v => { t.mixer.distortion = v; applyMixer(t); }),
+  );
+  sec.append(g); return sec;
+}
+function renderEditor(){
+  const ed = $('editor'); ed.innerHTML = ''; const t = track(sel);
+  if (!t) { ed.style.removeProperty('--tc'); ed.append(el('p', 'empty', '點上面任何一軌，就能在這裡調它的聲音。')); return; }
+  ed.style.setProperty('--tc', t.color);
+  const head = el('div', 'e-head'); head.append(el('span', 'eyebrow', '正在編輯 · ' + TYPE_NAME[t.type]));
+  const name = el('input'); name.type = 'text'; name.id = 'name_' + t.id; name.value = t.name; name.setAttribute('aria-label', '軌道名稱');
+  name.addEventListener('input', () => { t.name = name.value || TYPE_NAME[t.type]; save(); const i = project.tracks.indexOf(t); const n = document.querySelectorAll('.track .t-name')[i]; if (n) n.textContent = t.name; });
+  const right = el('div', 'right'); const del = el('button', 'danger', '刪除這軌'); del.type = 'button';
+  del.addEventListener('click', () => { if (del.dataset.arm) { removeTrack(t); } else { del.dataset.arm = '1'; del.textContent = '確定刪除？再按一次'; setTimeout(() => { delete del.dataset.arm; del.textContent = '刪除這軌'; }, 3000); } });
+  right.append(del); head.append(name, right); ed.append(head);
+  if (t.type === 'drum') renderDrum(ed, t); else if (t.type === 'synth') renderSynth(ed, t); else if (t.type === 'texture') renderTexture(ed, t); else renderSample(ed, t);
+  ed.append(mixerSection(t));
+  if (playing) setPlayhead(shownStep);
+}
+function renderDrum(ed, t){
+  const pat = section('節奏範本', '先選一個，再自己改格子');
+  const opts = Object.keys(PATTERNS).map(k => [k, k]); opts.push(['__clear', '清空']);
+  pat.append(chips(opts, null, v => { t.grid = v === '__clear' ? emptyGrid(4) : patternGrid(v); save(); renderTracks(); renderEditor(); }));
+  const g = section('節拍格子', '橫的是時間（1 2 3 4 拍），亮起來就會響');
+  g.append(buildGrid(t, DRUMS.map(d => d.name), r => r, idx => preview(t, idx)));
+  const s = section('這個聲音'), sl = el('div', 'sliders');
+  DRUMS.forEach(d => sl.append(slider(t, 'volume', d.name + '大小', t.levels[d.id], 0, 1, 0.01, v => { t.levels[d.id] = v; })));
+  sl.append(slider(t, 'tune', '整體音調', t.tune, -12, 12, 1, v => { t.tune = v; }), slider(t, 'decay', '長短', t.decay, 0.5, 2, 0.05, v => { t.decay = v; }));
+  s.append(sl); ed.append(pat, g, s);
+}
+function renderSynth(ed, t){
+  const pre = section('預設音色', '一按就套用，之後再微調');
+  pre.append(chips(Object.keys(SYNTH_PRESETS).map(k => [k, k]), null, v => { t.sound = {...SYNTH_PRESETS[v]}; save(); renderEditor(); preview(t, 2); }));
+  const shape = section('聲音的形狀');
+  shape.append(chips(SHAPES, t.sound.shape, v => { t.sound.shape = v; save(); renderEditor(); preview(t, 2); }));
+  const s = section('這個聲音'), sl = el('div', 'sliders'), so = t.sound;
+  sl.append(
+    slider(t, 'pitch', '音高', so.pitch, -24, 24, 1, v => { so.pitch = v; }),
+    slider(t, 'brightness', '亮度', so.brightness, 0, 1, 0.01, v => { so.brightness = v; }),
+    slider(t, 'attack', '起音', so.attack, 0, 1, 0.01, v => { so.attack = v; }),
+    slider(t, 'release', '尾音', so.release, 0, 1, 0.01, v => { so.release = v; }),
+    slider(t, 'vibrato', '顫音', so.vibrato, 0, 1, 0.01, v => { so.vibrato = v; }),
+  );
+  s.append(sl);
+  const g = section('旋律格子', '越上面越高音，亮起來那一格就會彈');
+  g.append(buildGrid(t, [...SCALE_NAMES].reverse(), r => 7 - r, idx => preview(t, idx)));
+  const k = section('用鍵盤彈', '電腦鍵盤 A S D F G H J K，或直接按下面的鍵');
+  const keys = el('div', 'keys');
+  SCALE_NAMES.forEach((n, i) => { const b = el('button', '', n); b.type = 'button'; b.dataset.idx = i; b.append(el('small', null, KEYS[i].toUpperCase()));
+    b.addEventListener('pointerdown', e => { e.preventDefault(); noteOn(t, i); b.classList.add('down'); setTimeout(() => b.classList.remove('down'), 150); }); keys.append(b); });
+  const tog = el('label', 'toggle'); const cb = el('input'); cb.type = 'checkbox'; cb.id = 'rec_' + t.id; cb.checked = !!t.record;
+  cb.addEventListener('change', () => { t.record = cb.checked; save(); }); tog.append(cb, el('span', null, '播放時，彈的音自動記進格子'));
+  k.append(keys, tog); ed.append(pre, shape, s, g, k);
+}
+function renderTexture(ed, t){
+  const pre = section('哪一種環境音');
+  pre.append(chips(Object.keys(TEXTURES).map(k => [k, k]), t.preset, v => { t.preset = v; if (t.name === TYPE_NAME.texture || Object.keys(TEXTURES).includes(t.name)) t.name = v; save(); restartLive(t); renderTracks(); renderEditor(); }));
+  const s = section('這個聲音', '大小請用上面那軌的音量'), sl = el('div', 'sliders');
+  sl.append(
+    slider(t, 'density', '粗細', t.params.density, 0, 1, 0.01, v => { t.params.density = v; updateTexture(t); }),
+    slider(t, 'movement', '起伏', t.params.movement, 0, 1, 0.01, v => { t.params.movement = v; updateTexture(t); }),
+  );
+  s.append(sl); ed.append(pre, s);
+  if (!playing) ed.append(el('p', 'note', '按上方 ▶ 播放就會聽到。環境音會一直持續，不跟著格子。'));
+}
+function renderSample(ed, t){
+  const buf = samples.get(t.id);
+  const d = section('音檔');
+  const drop = el('div', 'drop'); const inp = el('input'); inp.type = 'file'; inp.accept = 'audio/*'; inp.id = 'file_' + t.id;
+  const lab = el('label', 'btn', ''); lab.htmlFor = inp.id; const pick = el('span', '', buf ? '換一個檔案' : '選擇檔案'); pick.className = ''; lab.append(pick);
+  lab.style.cssText = 'display:inline-block;border:1px solid var(--line);border-radius:10px;padding:8px 14px;background:var(--surface);cursor:pointer;color:var(--fg)';
+  drop.append(el('div', null, buf ? '目前：' + t.fileName + '（' + t.duration.toFixed(1) + ' 秒）' : (t.fileName ? '上次是「' + t.fileName + '」，重新整理後要再放一次' : '把 MP3 / WAV / M4A 拖到這裡')), lab, inp);
+  inp.addEventListener('change', () => { if (inp.files[0]) loadFile(t, inp.files[0]); });
+  ['dragenter', 'dragover'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('over'); }));
+  ['dragleave', 'drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('over'); }));
+  drop.addEventListener('drop', e => { const f = e.dataTransfer.files[0]; if (f) loadFile(t, f); });
+  d.append(drop);
+  if (buf) { const cv = el('canvas', 'wave'); d.append(cv); requestAnimationFrame(() => drawWave(cv, buf, t)); }
+  ed.append(d);
+  const s = section('怎麼播'), sl = el('div', 'sliders');
+  sl.append(slider(t, 'speed', '速度', t.speed, 0.8, 1.2, 0.01, v => { t.speed = v; const c = nodes.get(t.id); if (c && c.live) c.live.src.playbackRate.value = v; }));
+  if (buf) sl.append(slider(t, 'start', '從哪裡開始', t.start, 0, Math.max(0.1, buf.duration - 0.1), 0.1, v => { t.start = v; restartLive(t); }));
+  const tog = el('label', 'toggle'); const cb = el('input'); cb.type = 'checkbox'; cb.id = 'loop_' + t.id; cb.checked = t.loop;
+  cb.addEventListener('change', () => { t.loop = cb.checked; save(); restartLive(t); }); tog.append(cb, el('span', null, '播完自動重頭循環'));
+  s.append(sl, tog); ed.append(s);
+  ed.append(el('p', 'note', '原型版：檔案只放在記憶體裡，重新整理要再拖一次。正式版會存起來。'));
+}
+function loadFile(t, file){
+  ensureAudio(); const r = new FileReader();
+  r.onload = () => ctx.decodeAudioData(r.result).then(buf => { samples.set(t.id, buf); t.fileName = file.name; t.duration = buf.duration; t.start = 0; if (t.name === TYPE_NAME.sample) t.name = file.name.replace(/\.[^.]+$/, ''); save(); restartLive(t); renderTracks(); renderEditor(); toast('已放進「' + t.name + '」這一軌'); })
+    .catch(() => toast('這個檔案讀不出來，換一個 MP3 或 WAV 試試'));
+  r.readAsArrayBuffer(file);
+}
+function drawWave(cv, buf, t){
+  const w = cv.width = cv.clientWidth * 2, h = cv.height = 160, g = cv.getContext('2d'), d = buf.getChannelData(0), per = Math.max(1, Math.floor(d.length / w));
+  g.clearRect(0, 0, w, h); g.fillStyle = t.color;
+  for (let x = 0; x < w; x++) { let m = 0; for (let i = 0; i < per; i += 4) m = Math.max(m, Math.abs(d[x * per + i] || 0)); const hh = Math.max(2, m * h * 0.9); g.fillRect(x, (h - hh) / 2, 1, hh); }
+}
+
+/* ---------- 鍵盤彈奏 ---------- */
+function noteOn(t, idx){
+  ensureAudio(); ctx.resume(); const c = getChain(t); playNote(c.input, ctx.currentTime + 0.005, t, idx, 0.2);
+  if (playing && t.record && shownStep >= 0) { t.grid[idx][shownStep] = 1; refreshOverview(t); const cell = document.querySelectorAll('.grid .cell')[(7 - idx) * STEPS + shownStep]; if (cell) cell.classList.add('on'); save(); }
+}
+document.addEventListener('keydown', e => {
+  if (e.repeat || e.metaKey || e.ctrlKey || e.altKey) return; const tag = (e.target.tagName || '').toLowerCase(); if (tag === 'input' || tag === 'textarea') return;
+  const i = KEYS.indexOf(e.key.toLowerCase());
+  if (i >= 0) { let t = track(sel); if (!t || t.type !== 'synth') t = project.tracks.find(x => x.type === 'synth'); if (!t) return; noteOn(t, i);
+    const b = document.querySelector('.keys button[data-idx="' + i + '"]'); if (b) { b.classList.add('down'); setTimeout(() => b.classList.remove('down'), 150); } }
+  if (e.key === ' ' && tag !== 'button') { e.preventDefault(); togglePlay(); }
+});
+
+/* ---------- 其他操作 ---------- */
+function togglePlay(){ playing ? stop() : start(); }
+function removeTrack(t){ stopLive(t); nodes.delete(t.id); samples.delete(t.id); project.tracks = project.tracks.filter(x => x !== t); if (sel === t.id) sel = null; applyAllMix(); save(); renderTracks(); renderEditor(); }
+function addTrack(type){
+  if (project.tracks.length >= 8) { toast('最多 8 軌，先刪掉一軌再加'); return; }
+  const t = makeTrack(type); project.tracks.push(t); if (ctx) { getChain(t); if (playing && type === 'texture') startTexture(t); }
+  save(); select(t.id); $('addMenu').hidden = true; $('editor').scrollIntoView({behavior: 'smooth', block: 'start'});
+}
+let toastT = null;
+function toast(msg){ const t = $('toast'); t.textContent = msg; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => { t.hidden = true; }, 2600); }
+function hideHint(){ $('hint').hidden = true; try { localStorage.setItem(SAVE_KEY + '.hint', '1'); } catch (e) {} }
+
+$('playBtn').addEventListener('click', togglePlay);
+$('bpm').addEventListener('input', e => { project.bpm = +e.target.value; $('bpmVal').textContent = project.bpm; if (delayNode) delayNode.delayTime.setTargetAtTime(stepDur() * 3, ctx.currentTime, 0.1); save(); });
+$('master').addEventListener('input', e => { project.master.volume = e.target.value / 100; if (master) master.gain.setTargetAtTime(project.master.volume, ctx.currentTime, 0.02); save(); });
+$('hintClose').addEventListener('click', hideHint);
+$('addBtn').addEventListener('click', () => { $('addMenu').hidden = !$('addMenu').hidden; });
+$('addMenu').querySelectorAll('button').forEach(b => b.addEventListener('click', () => addTrack(b.dataset.type)));
+$('shareBtn').addEventListener('click', () => { $('modal').hidden = false; });
+$('modalClose').addEventListener('click', () => { $('modal').hidden = true; });
+$('modal').addEventListener('click', e => { if (e.target === $('modal')) $('modal').hidden = true; });
+$('copyLink').addEventListener('click', () => { const inp = $('shareLink'); const done = () => toast('已複製連結'); const fallback = () => { inp.select(); done(); };
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(inp.value).then(done, fallback); else fallback(); });
+$('exportBtn').addEventListener('click', () => toast('原型版先不支援匯出。正式版會把混好的結果輸出成 WAV 存到電腦。'));
+const resetBtn = $('resetBtn');
+resetBtn.addEventListener('click', () => {
+  if (resetBtn.dataset.arm) { if (playing) stop(); nodes.clear(); samples.clear(); defaultProject(); sel = project.tracks[0].id; save(); syncTop(); renderTracks(); renderEditor(); delete resetBtn.dataset.arm; resetBtn.textContent = '還原'; toast('已回到一開始的範例'); }
+  else { resetBtn.dataset.arm = '1'; resetBtn.textContent = '確定還原？再按一次'; setTimeout(() => { delete resetBtn.dataset.arm; resetBtn.textContent = '還原'; }, 3000); }
+});
+function syncTop(){ $('bpm').value = project.bpm; $('bpmVal').textContent = project.bpm; $('master').value = Math.round(project.master.volume * 100); }
+
+/* ---------- 啟動 ---------- */
+load(); syncTop();
+try { if (localStorage.getItem(SAVE_KEY + '.hint')) $('hint').hidden = true; } catch (e) {}
+sel = project.tracks[0] ? project.tracks[0].id : null;
+renderTracks(); renderEditor();
+})();
+</script>
