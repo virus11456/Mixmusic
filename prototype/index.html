@@ -282,6 +282,21 @@ const TEXTURES = {
              gap:(tr) => 60 / (48 + tr.params.density * 72)},
   '白噪音': {noise:'white', filter:'lowpass',  minHz:400,  maxHz:16000,rate:1,    gain:0.4, dl:'粗細', ml:'起伏'},
 };
+/* 真實錄音（CC0 / 免費授權，來源見 sounds/CREDITS.md）：20 秒無縫循環 mp3 */
+const REAL = [
+  ['rain','雨'], ['rainthunder','雷雨'], ['waves','海浪'], ['river','溪流'], ['fire','營火'], ['wind','風'],
+  ['birds','鳥叫'], ['morning','清晨'], ['crickets','蟲鳴'], ['nightforest','夜晚森林'], ['park','公園'],
+  ['traffic','街道車流'], ['citynight','城市夜晚'], ['crowd','人群'], ['cafe','咖啡廳'], ['subway','地鐵'],
+];
+REAL.forEach(([id, label]) => { TEXTURES['r:' + id] = {file: 'sounds/' + id + '.mp3', label, minHz: 250, maxHz: 16000, rate: 0.25, gain: 1, dl: '明亮', ml: '起伏'}; });
+const texLabel = (key) => (TEXTURES[key] && TEXTURES[key].label) || key;
+const TEX_LABELS = new Set(Object.keys(TEXTURES).map(texLabel));
+const realBufs = new Map(), realLoading = new Map();
+function loadReal(file){
+  if (realBufs.has(file)) return Promise.resolve(realBufs.get(file));
+  if (!realLoading.has(file)) realLoading.set(file, fetch(file).then(r => { if (!r.ok) throw new Error(r.status); return r.arrayBuffer(); }).then(decodeBytes).then(buf => { realBufs.set(file, buf); return buf; }).catch(e => { realLoading.delete(file); throw e; }));
+  return realLoading.get(file);
+}
 function blip(dest, time, f0, f1, dur, lvl){
   const o = ctx.createOscillator(), g = ctx.createGain(); o.type = 'sine';
   o.frequency.setValueAtTime(f0, time); o.frequency.exponentialRampToValueAtTime(Math.max(20, f1), time + dur);
@@ -325,7 +340,7 @@ function defaultProject(){
   const drum = makeTrack('drum'); drum.name = '鼓'; project.tracks.push(drum);
   const bass = makeTrack('synth'); bass.name = '貝斯'; bass.sound = {...SYNTH_PRESETS['溫暖貝斯']}; bass.mixer.volume = 0.7; project.tracks.push(bass);
   [[0,0],[0,4],[2,6],[3,8],[2,12],[4,14]].forEach(([p,s]) => bass.grid[p][s] = 1);
-  const rain = makeTrack('texture'); rain.name = '雨聲'; rain.mixer.reverb = 0.2; project.tracks.push(rain);
+  const rain = makeTrack('texture'); rain.name = '雨'; rain.preset = 'r:rain'; rain.params = {density: 1, movement: 0}; rain.mixer.volume = 0.45; project.tracks.push(rain);
   const p = project; project = prev; return p;
 }
 
@@ -512,9 +527,21 @@ function playNote(dest, time, t, pitchIdx, dur){
 }
 function startTexture(t){
   const c = getChain(t); if (!c || c.live) return; const def = TEXTURES[t.preset];
-  const src = noiseSource(def.noise), filt = ctx.createBiquadFilter(), g = ctx.createGain(), lfo = ctx.createOscillator(), lfoG = ctx.createGain();
-  filt.type = def.filter; filt.Q.value = def.filter === 'bandpass' ? 0.6 : 0.8; lfo.frequency.value = def.rate;
-  lfo.connect(lfoG).connect(g.gain); src.connect(filt).connect(g).connect(c.input); src.start(); lfo.start();
+  let src;
+  if (def.file) {
+    const buf = realBufs.get(def.file);
+    if (!buf) {
+      c.live = {kind: 'texture', pending: true};
+      loadReal(def.file).then(() => { if (c.live && c.live.pending) { c.live = null; if (playing && TEXTURES[t.preset] === def) startTexture(t); } })
+        .catch(() => { if (c.live && c.live.pending) c.live = null; toast('「' + def.label + '」載入失敗，確認網路後再按一次播放'); });
+      return;
+    }
+    src = ctx.createBufferSource(); src.buffer = buf; src.loop = true; src.loopStart = 0.03; src.loopEnd = buf.duration - 0.03;
+  } else src = noiseSource(def.noise);
+  const filt = ctx.createBiquadFilter(), g = ctx.createGain(), lfo = ctx.createOscillator(), lfoG = ctx.createGain();
+  filt.type = def.filter || 'lowpass'; filt.Q.value = def.filter === 'bandpass' ? 0.6 : 0.5; lfo.frequency.value = def.rate;
+  lfo.connect(lfoG).connect(g.gain); src.connect(filt).connect(g).connect(c.input);
+  if (def.file) src.start(0, 0.03 + (ctx.startRendering ? 0 : R() * src.buffer.duration * 0.5)); else src.start(); lfo.start();
   c.live = {src, filt, g, lfo, lfoG, kind: 'texture', next: null, timer: null}; updateTexture(t);
   if (def.event) {
     if (ctx.startRendering) scheduleEvents(t, c, 0, ctx.length / ctx.sampleRate);
@@ -527,7 +554,7 @@ function scheduleEvents(t, c, from, to){
   c.live.next = time;
 }
 function updateTexture(t){
-  const c = nodes.get(t.id); if (!c || !c.live) return; const def = TEXTURES[t.preset], depth = t.params.movement;
+  const c = nodes.get(t.id); if (!c || !c.live || c.live.pending) return; const def = TEXTURES[t.preset], depth = t.params.movement;
   c.live.filt.frequency.value = def.minHz * Math.pow(def.maxHz / def.minHz, t.params.density);
   c.live.g.gain.value = def.gain * (1 - depth * 0.5); c.live.lfoG.gain.value = def.gain * depth * 0.5;
 }
@@ -536,7 +563,7 @@ function startSample(t){
   const src = ctx.createBufferSource(); src.buffer = buf; src.loop = t.loop; src.loopStart = t.start; src.loopEnd = buf.duration; src.playbackRate.value = t.speed;
   src.connect(c.input); src.start(0, t.start); c.live = {src, kind: 'sample'};
 }
-function stopLive(t){ const c = nodes.get(t.id); if (!c || !c.live) return; if (c.live.timer) clearInterval(c.live.timer); try { c.live.src.stop(); if (c.live.lfo) c.live.lfo.stop(); } catch (e) {} c.live = null; }
+function stopLive(t){ const c = nodes.get(t.id); if (!c || !c.live) return; if (c.live.pending) { c.live = null; return; } if (c.live.timer) clearInterval(c.live.timer); try { c.live.src.stop(); if (c.live.lfo) c.live.lfo.stop(); } catch (e) {} c.live = null; }
 function restartLive(t){ if (!playing) return; stopLive(t); if (t.type === 'texture') startTexture(t); if (t.type === 'sample') startSample(t); }
 
 /* ---------- 手機解鎖 ---------- */
@@ -640,7 +667,7 @@ function renderTracks(){
       for (let s = 0; s < STEPS; s++) { const c = el('div', 'cell' + (s % 4 === 0 ? ' beat' : '') + (t.grid.some(r => r[s]) ? ' on' : '')); c.dataset.step = s; ov.append(c); }
     } else {
       ov = el('div', 'ov-text'); const w = el('span', 'waves'); for (let i = 0; i < 5; i++) w.append(el('i'));
-      ov.append(w, el('span', null, t.type === 'texture' ? t.preset + '，一直持續' : (t.fileName ? t.fileName : '還沒有檔案，點這一軌上傳')));
+      ov.append(w, el('span', null, t.type === 'texture' ? texLabel(t.preset) + '，一直持續' : (t.fileName ? t.fileName : '還沒有檔案，點這一軌上傳')));
     }
     const mix = el('div', 't-mix');
     const vol = slider(t, 'volume', '音量', t.mixer.volume, 0, 1, 0.01, v => { t.mixer.volume = v; applyMixer(t); });
@@ -748,14 +775,17 @@ function renderSynth(ed, t){
   k.append(keys, tog); ed.append(pre, shape, s, g, k);
 }
 function renderTexture(ed, t){
-  const pre = section('哪一種環境音');
-  pre.append(chips(Object.keys(TEXTURES).map(k => [k, k]), t.preset, v => { t.preset = v; if (t.name === TYPE_NAME.texture || Object.keys(TEXTURES).includes(t.name)) t.name = v; save(); restartLive(t); renderTracks(); renderEditor(); }));
+  const pick = v => { const def = TEXTURES[v]; t.preset = v; if (t.name === TYPE_NAME.texture || TEX_LABELS.has(t.name)) t.name = texLabel(v); t.params = def.file ? {density: 1, movement: 0} : {density: 0.6, movement: 0.3}; save(); restartLive(t); renderTracks(); renderEditor(); if (def.file) loadReal(def.file).catch(() => {}); };
+  const pre = section('真實錄音', '真的錄下來的聲音，20 秒無縫循環');
+  pre.append(chips(Object.keys(TEXTURES).filter(k => TEXTURES[k].file).map(k => [k, texLabel(k)]), t.preset, pick));
+  const syn = section('程式合成', '用程式即時做出來的，每次聽都略有不同');
+  syn.append(chips(Object.keys(TEXTURES).filter(k => !TEXTURES[k].file).map(k => [k, k]), t.preset, pick));
   const def = TEXTURES[t.preset] || TEXTURES['雨聲'];
   const s = section('這個聲音', '大小請用上面那軌的音量'), sl = el('div', 'sliders');
   const d1 = slider(t, def.dk || 'density', def.dl || '粗細', t.params.density, 0, 1, 0.01, v => { t.params.density = v; updateTexture(t); });
   const d2 = slider(t, def.mk || 'movement', def.ml || '起伏', t.params.movement, 0, 1, 0.01, v => { t.params.movement = v; updateTexture(t); });
   sl.append(d1, d2);
-  s.append(sl); ed.append(pre, s);
+  s.append(sl); ed.append(pre, syn, s);
   if (!playing) ed.append(el('p', 'note', '按上方 ▶ 播放就會聽到。環境音會一直持續，不跟著格子。'));
 }
 function renderSample(ed, t){
@@ -878,6 +908,7 @@ async function exportWav(){
   const saved = {ctx, master, reverbNode, delayNode, nodes: new Map(nodes), noise: Object.assign({}, noiseBuf)};
   try {
     toast('正在輸出 ' + loops + ' 小節，請稍等…');
+    await Promise.all(project.tracks.filter(t => t.type === 'texture' && TEXTURES[t.preset] && TEXTURES[t.preset].file).map(t => loadReal(TEXTURES[t.preset].file)));
     ctx = new OC(2, Math.ceil(sr * dur), sr); nodes.clear(); buildGraph();
     project.tracks.forEach(t => { if (t.type === 'texture') startTexture(t); if (t.type === 'sample') startSample(t); });
     for (let i = 0; i < STEPS * loops; i++) scheduleStep(i % STEPS, 0.02 + i * stepDur());
