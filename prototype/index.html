@@ -128,6 +128,12 @@ input[type=range]{accent-color:var(--accent);width:100%;height:28px;margin:0}
 .drop.over{border-color:var(--tc);color:var(--fg)}
 .drop input{display:none}
 .drop .btn{display:inline-block;margin-top:8px}
+.recbox{display:flex;flex-wrap:wrap;align-items:center;gap:10px;background:var(--surface-2);border-radius:12px;padding:12px 14px}
+.recbox .rec{font-weight:700;border-radius:999px;padding:8px 18px}
+.recbox .rec.rec-on{background:#c43d2b;border-color:#c43d2b;color:#fff;animation:blink 1s step-end infinite}
+.recbox .status{color:var(--muted);font-size:14px}
+@keyframes blink{50%{box-shadow:0 0 0 4px rgba(196,61,43,.25)}}
+.two{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px}
 canvas.wave{width:100%;height:80px;display:block;background:var(--surface-2);border-radius:10px}
 .note{font-size:13px;color:var(--muted)}
 
@@ -147,7 +153,7 @@ canvas.wave{width:100%;height:80px;display:block;background:var(--surface-2);bor
   .grid{grid-template-columns:44px repeat(16,minmax(18px,1fr))}
   .keys button{font-size:13px;min-height:50px}
 }
-@media (prefers-reduced-motion: reduce){ .playing .waves i{animation:none;height:60%} }
+@media (prefers-reduced-motion: reduce){ .playing .waves i{animation:none;height:60%} .recbox .rec.rec-on{animation:none} }
 </style>
 </head>
 <body>
@@ -175,6 +181,7 @@ canvas.wave{width:100%;height:80px;display:block;background:var(--surface-2);bor
       <button data-type="synth">🎹 合成器（彈旋律）</button>
       <button data-type="drum">🥁 鼓（打節奏）</button>
       <button data-type="texture">🌧 環境音（雨、風、海）</button>
+      <button data-type="mic">🎤 錄真實的聲音</button>
       <button data-type="sample">📁 上傳我的音檔</button>
     </div>
   </div>
@@ -203,7 +210,7 @@ const SCALE_NAMES = ['Do','Re','Mi','Sol','La','高Do','高Re','高Mi'];
 const KEYS = ['a','s','d','f','g','h','j','k'];
 const DRUMS = [{id:'kick',name:'大鼓'},{id:'snare',name:'小鼓'},{id:'hat',name:'Hi-hat'},{id:'clap',name:'拍手'}];
 const COLORS = ['#f5a524','#3d7cf4','#1fb5a3','#a06cf0','#ef5b7a','#4caf6e','#e0953a','#5b8def'];
-const TYPE_NAME = {drum:'鼓', synth:'合成器', texture:'環境音', sample:'我的音檔'};
+const TYPE_NAME = {drum:'鼓', synth:'合成器', texture:'環境音', sample:'真實聲音'};
 const SHAPES = [['sine','圓潤'],['square','明亮'],['sawtooth','粗糙'],['triangle','柔和']];
 
 const PATTERNS = {
@@ -573,7 +580,12 @@ function renderTexture(ed, t){
 }
 function renderSample(ed, t){
   const buf = samples.get(t.id);
-  const d = section('音檔');
+  const d = section('真實世界的聲音', '用麥克風錄現場的聲音，或上傳你的音檔');
+  const two = el('div', 'two');
+  const rb = el('div', 'recbox'); const rbtn = el('button', 'rec', '● 開始錄音'); rbtn.type = 'button'; const rst = el('span', 'status', '對著手機或電腦的麥克風錄一段，最多 30 秒');
+  if (rec && rec.t === t) { rbtn.textContent = '■ 停止錄音'; rbtn.classList.add('rec-on'); rst.textContent = '錄音中…'; rec.status = rst; rec.btn = rbtn; }
+  rbtn.addEventListener('click', () => { if (rec) stopRecording(); else startRecording(t, rbtn, rst); });
+  rb.append(rbtn, rst);
   const drop = el('div', 'drop'); const inp = el('input'); inp.type = 'file'; inp.accept = 'audio/*'; inp.id = 'file_' + t.id;
   const lab = el('label', 'btn', ''); lab.htmlFor = inp.id; const pick = el('span', '', buf ? '換一個檔案' : '選擇檔案'); pick.className = ''; lab.append(pick);
   lab.style.cssText = 'display:inline-block;border:1px solid var(--line);border-radius:10px;padding:8px 14px;background:var(--surface);cursor:pointer;color:var(--fg)';
@@ -582,7 +594,7 @@ function renderSample(ed, t){
   ['dragenter', 'dragover'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('over'); }));
   ['dragleave', 'drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('over'); }));
   drop.addEventListener('drop', e => { const f = e.dataTransfer.files[0]; if (f) loadFile(t, f); });
-  d.append(drop);
+  two.append(rb, drop); d.append(two);
   if (buf) { const cv = el('canvas', 'wave'); d.append(cv); requestAnimationFrame(() => drawWave(cv, buf, t)); }
   ed.append(d);
   const s = section('怎麼播'), sl = el('div', 'sliders');
@@ -591,14 +603,34 @@ function renderSample(ed, t){
   const tog = el('label', 'toggle'); const cb = el('input'); cb.type = 'checkbox'; cb.id = 'loop_' + t.id; cb.checked = t.loop;
   cb.addEventListener('change', () => { t.loop = cb.checked; save(); restartLive(t); }); tog.append(cb, el('span', null, '播完自動重頭循環'));
   s.append(sl, tog); ed.append(s);
-  ed.append(el('p', 'note', '原型版：檔案只放在記憶體裡，重新整理要再拖一次。正式版會存起來。'));
+  ed.append(el('p', 'note', '原型版：錄音和檔案只放在記憶體裡，重新整理要再錄或再拖一次。正式版會存起來。'));
 }
 function loadFile(t, file){
   ensureAudio(); const r = new FileReader();
-  r.onload = () => ctx.decodeAudioData(r.result).then(buf => { samples.set(t.id, buf); t.fileName = file.name; t.duration = buf.duration; t.start = 0; if (t.name === TYPE_NAME.sample) t.name = file.name.replace(/\.[^.]+$/, ''); save(); restartLive(t); renderTracks(); renderEditor(); toast('已放進「' + t.name + '」這一軌'); })
+  r.onload = () => ctx.decodeAudioData(r.result).then(buf => { samples.set(t.id, buf); t.fileName = file.name; t.duration = buf.duration; t.start = 0; if (t.name === TYPE_NAME.sample) t.name = file.name.replace(/\.[^.]+$/, ''); save(); restartLive(t); renderTracks(); renderEditor(); toast('已放進「' + t.name + '」這一軌，按 ▶ 播放就會跟其他軌一起響'); })
     .catch(() => toast('這個檔案讀不出來，換一個 MP3 或 WAV 試試'));
   r.readAsArrayBuffer(file);
 }
+let rec = null;
+function startRecording(t, btn, status){
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) { toast('這個瀏覽器不支援錄音，請用 Chrome 或 Safari 打開網址'); return; }
+  ensureAudio(); ctx.resume();
+  navigator.mediaDevices.getUserMedia({audio: {echoCancellation: false, noiseSuppression: false, autoGainControl: true}}).then(stream => {
+    const mr = new MediaRecorder(stream), chunks = [];
+    mr.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    mr.onstop = () => {
+      stream.getTracks().forEach(tr => tr.stop()); clearInterval(rec.timer); const target = rec.t; rec = null;
+      const blob = new Blob(chunks, {type: mr.mimeType || 'audio/webm'});
+      if (!blob.size) { toast('沒有錄到聲音，再試一次'); renderEditor(); return; }
+      const name = '錄音 ' + new Date().toLocaleTimeString('zh-TW', {hour: '2-digit', minute: '2-digit'});
+      loadFile(target, new File([blob], name, {type: blob.type}));
+    };
+    mr.start(); const startAt = Date.now();
+    rec = {mr, stream, t, btn, status, timer: setInterval(() => { const sec = Math.floor((Date.now() - startAt) / 1000); if (rec && rec.status) rec.status.textContent = '錄音中 ' + sec + ' 秒…（最多 30 秒，再按一次停止）'; if (sec >= 30) stopRecording(); }, 250)};
+    btn.textContent = '■ 停止錄音'; btn.classList.add('rec-on'); status.textContent = '錄音中 0 秒…';
+  }).catch(err => { toast(err && (err.name === 'NotAllowedError' || err.name === 'SecurityError') ? '要先允許使用麥克風才能錄音' : '打不開麥克風，確認裝置有麥克風而且已允許使用'); });
+}
+function stopRecording(){ if (rec && rec.mr.state !== 'inactive') rec.mr.stop(); }
 function drawWave(cv, buf, t){
   const w = cv.width = cv.clientWidth * 2, h = cv.height = 160, g = cv.getContext('2d'), d = buf.getChannelData(0), per = Math.max(1, Math.floor(d.length / w));
   g.clearRect(0, 0, w, h); g.fillStyle = t.color;
@@ -620,10 +652,11 @@ document.addEventListener('keydown', e => {
 
 /* ---------- 其他操作 ---------- */
 function togglePlay(){ playing ? stop() : start(); }
-function removeTrack(t){ stopLive(t); nodes.delete(t.id); samples.delete(t.id); project.tracks = project.tracks.filter(x => x !== t); if (sel === t.id) sel = null; applyAllMix(); save(); renderTracks(); renderEditor(); }
+function removeTrack(t){ if (rec && rec.t === t) stopRecording(); stopLive(t); nodes.delete(t.id); samples.delete(t.id); project.tracks = project.tracks.filter(x => x !== t); if (sel === t.id) sel = null; applyAllMix(); save(); renderTracks(); renderEditor(); }
 function addTrack(type){
   if (project.tracks.length >= 8) { toast('最多 8 軌，先刪掉一軌再加'); return; }
-  const t = makeTrack(type); project.tracks.push(t); if (ctx) { getChain(t); if (playing && type === 'texture') startTexture(t); }
+  const wantMic = type === 'mic'; if (wantMic) type = 'sample';
+  const t = makeTrack(type); if (wantMic) t.name = '錄音'; project.tracks.push(t); if (ctx) { getChain(t); if (playing && type === 'texture') startTexture(t); }
   save(); select(t.id); $('addMenu').hidden = true; $('editor').scrollIntoView({behavior: 'smooth', block: 'start'});
 }
 let toastT = null;
