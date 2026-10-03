@@ -138,6 +138,7 @@ canvas.wave{width:100%;height:80px;display:block;background:var(--surface-2);bor
 .note{font-size:13px;color:var(--muted)}
 
 /* 提示與對話框 */
+.fab{display:none}
 .toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:10px 16px;border-radius:10px;font-size:14px;max-width:calc(100vw - 32px);box-shadow:var(--shadow);z-index:20}
 .backdrop{position:fixed;inset:0;background:rgba(10,14,20,.45);display:flex;align-items:center;justify-content:center;padding:16px;z-index:30}
 .modal{background:var(--surface);border-radius:16px;padding:20px;max-width:440px;width:100%;display:flex;flex-direction:column;gap:12px;box-shadow:var(--shadow)}
@@ -150,8 +151,12 @@ canvas.wave{width:100%;height:80px;display:block;background:var(--surface-2);bor
   .t-mix{order:3}
   .ctl{min-width:140px}
   .actions{margin-left:0;width:100%}
-  .grid{grid-template-columns:44px repeat(16,minmax(18px,1fr))}
+  .grid{grid-template-columns:40px repeat(16,28px);min-width:0}
   .keys button{font-size:13px;min-height:50px}
+  .fab{display:flex;position:fixed;right:16px;bottom:calc(16px + env(safe-area-inset-bottom,0px));width:64px;height:64px;border-radius:50%;background:var(--accent);color:var(--accent-fg);font-size:26px;font-weight:700;align-items:center;justify-content:center;box-shadow:0 6px 20px rgba(20,30,45,.3);z-index:15;border:0;padding:0}
+  .fab:hover{background:var(--accent)}
+  .toast{bottom:calc(96px + env(safe-area-inset-bottom,0px))}
+  #app{padding-bottom:100px}
 }
 @media (prefers-reduced-motion: reduce){ .playing .waves i{animation:none;height:60%} .recbox .rec.rec-on{animation:none} }
 </style>
@@ -171,6 +176,7 @@ canvas.wave{width:100%;height:80px;display:block;background:var(--surface-2);bor
     </div>
   </header>
 
+  <div id="iosHint" class="hint" hidden><span>想把 Mixmusic 裝到桌面：按 Safari 下方的 <b>分享</b> 圖示，再選 <b>加入主畫面</b>。之後離線也能玩。</span><button id="iosHintClose">知道了</button></div>
   <div id="hint" class="hint"><span>先按 <b>▶ 播放</b> 聽聽看，再點任何一軌、改任何一個格子或滑桿。怎麼亂調都不會壞。<br>用 iPhone 的話，記得把側邊的靜音開關關掉、音量調大。</span><button id="hintClose">知道了</button></div>
 
   <section id="tracks" class="tracks" aria-label="軌道列表"></section>
@@ -189,6 +195,7 @@ canvas.wave{width:100%;height:80px;display:block;background:var(--surface-2);bor
   <section id="editor" class="editor" aria-label="正在編輯"></section>
 
   <div id="offline" class="hint" hidden><span>目前離線中。App 和你存的東西都還能用，分享和上傳要等連上網路。</span></div>
+  <button id="fab" class="fab" aria-label="播放">▶</button>
   <div id="toast" class="toast" hidden></div>
   <div id="modal" class="backdrop" hidden>
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
@@ -269,6 +276,24 @@ function load(){
 let saveT = null;
 function save(){ clearTimeout(saveT); saveT = setTimeout(() => { try { localStorage.setItem(SAVE_KEY, JSON.stringify(project)); } catch (e) {} }, 300); }
 const track = (id) => project.tracks.find(t => t.id === id);
+const idb = {
+  open(){ return new Promise((res, rej) => { if (!window.indexedDB) return rej(new Error('no idb')); const r = indexedDB.open('mixmusic', 1); r.onupgradeneeded = () => r.result.createObjectStore('files'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }); },
+  async run(mode, fn){ try { const db = await this.open(); return await new Promise((res, rej) => { const tx = db.transaction('files', mode); const req = fn(tx.objectStore('files')); tx.oncomplete = () => res(req && req.result); tx.onerror = () => rej(tx.error); }); } catch (e) { return undefined; } },
+  put(id, val){ return this.run('readwrite', st => st.put(val, id)); },
+  get(id){ return this.run('readonly', st => st.get(id)); },
+  del(id){ return this.run('readwrite', st => st.delete(id)); },
+  clear(){ return this.run('readwrite', st => st.clear()); },
+};
+function decodeBytes(bytes){
+  const OC = window.OfflineAudioContext || window.webkitOfflineAudioContext; const oc = new OC(1, 1, 44100);
+  return new Promise((res, rej) => { const pr = oc.decodeAudioData(bytes.slice(0), res, rej); if (pr && pr.then) pr.then(res, rej); });
+}
+function restoreFiles(){
+  project.tracks.filter(t => t.type === 'sample' && t.fileName).forEach(t => idb.get(t.id).then(row => {
+    if (!row || !row.bytes) return;
+    return decodeBytes(row.bytes).then(buf => { samples.set(t.id, buf); t.duration = buf.duration; if (playing) restartLive(t); renderTracks(); if (sel === t.id) renderEditor(); });
+  }).catch(() => {}));
+}
 
 /* ---------- 聲音引擎（Web Audio） ---------- */
 let ctx = null, master = null, reverbNode = null, delayNode = null;
@@ -279,11 +304,13 @@ const samples = new Map();
 function ensureAudio(){
   if (ctx) return;
   ctx = new (window.AudioContext || window.webkitAudioContext)();
+  buildGraph(); unlockIOS();
+}
+function buildGraph(){
   master = ctx.createGain(); master.gain.value = project.master.volume;
   const comp = ctx.createDynamicsCompressor(); comp.threshold.value = -10; comp.knee.value = 6; comp.ratio.value = 12; comp.attack.value = 0.001; comp.release.value = 0.2;
   const makeup = ctx.createGain(); makeup.gain.value = 1.3;
   master.connect(comp).connect(makeup).connect(ctx.destination);
-  unlockIOS();
   noiseBuf.white = makeNoise('white'); noiseBuf.brown = makeNoise('brown');
   reverbNode = ctx.createConvolver(); reverbNode.buffer = makeImpulse(2.2); reverbNode.connect(master);
   delayNode = ctx.createDelay(2); delayNode.delayTime.value = stepDur() * 3;
@@ -315,6 +342,7 @@ function getChain(t){
   input.connect(dist); dist.connect(low); low.connect(high);
   let last = high; if (pan) { high.connect(pan); last = pan; }
   last.connect(vol); vol.connect(master); vol.connect(rev); rev.connect(reverbNode); vol.connect(dly); dly.connect(delayNode);
+  vol.gain.value = effectiveVolume(t);
   c = {input, dist, low, high, pan, vol, rev, dly, live: null}; nodes.set(t.id, c); applyMixer(t); return c;
 }
 function effectiveVolume(t){ const anySolo = project.tracks.some(x => x.mixer.solo); if (t.mixer.mute || (anySolo && !t.mixer.solo)) return 0; return t.mixer.volume; }
@@ -405,9 +433,9 @@ function start(){
   ensureAudio(); wakeAudio(); playing = true; step = 0; nextTime = ctx.currentTime + 0.05; uiQueue = [];
   project.tracks.forEach(t => { if (t.type === 'texture') startTexture(t); if (t.type === 'sample') startSample(t); });
   timer = setInterval(tick, 25); requestAnimationFrame(uiLoop);
-  $('playBtn').textContent = '■ 停止'; document.body.classList.add('playing'); hideHint();
+  $('playBtn').textContent = '■ 停止'; $('fab').textContent = '■'; document.body.classList.add('playing'); hideHint();
 }
-function stop(){ playing = false; clearInterval(timer); project.tracks.forEach(stopLive); setPlayhead(-1); $('playBtn').textContent = '▶ 播放'; document.body.classList.remove('playing'); }
+function stop(){ playing = false; clearInterval(timer); project.tracks.forEach(stopLive); setPlayhead(-1); $('playBtn').textContent = '▶ 播放'; $('fab').textContent = '▶'; document.body.classList.remove('playing'); }
 function tick(){ while (nextTime < ctx.currentTime + 0.15) { scheduleStep(step, nextTime); uiQueue.push({step, time: nextTime}); nextTime += stepDur(); step = (step + 1) % STEPS; } }
 function scheduleStep(s, time){
   for (const t of project.tracks) {
@@ -608,7 +636,7 @@ function renderSample(ed, t){
   const drop = el('div', 'drop'); const inp = el('input'); inp.type = 'file'; inp.accept = 'audio/*'; inp.id = 'file_' + t.id;
   const lab = el('label', 'btn', ''); lab.htmlFor = inp.id; const pick = el('span', '', buf ? '換一個檔案' : '選擇檔案'); pick.className = ''; lab.append(pick);
   lab.style.cssText = 'display:inline-block;border:1px solid var(--line);border-radius:10px;padding:8px 14px;background:var(--surface);cursor:pointer;color:var(--fg)';
-  drop.append(el('div', null, buf ? '目前：' + t.fileName + '（' + t.duration.toFixed(1) + ' 秒）' : (t.fileName ? '上次是「' + t.fileName + '」，重新整理後要再放一次' : '把 MP3 / WAV / M4A 拖到這裡')), lab, inp);
+  drop.append(el('div', null, buf ? '目前：' + t.fileName + '（' + t.duration.toFixed(1) + ' 秒）' : (t.fileName ? '正在載入「' + t.fileName + '」…' : '把 MP3 / WAV / M4A 拖到這裡')), lab, inp);
   inp.addEventListener('change', () => { if (inp.files[0]) loadFile(t, inp.files[0]); });
   ['dragenter', 'dragover'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('over'); }));
   ['dragleave', 'drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('over'); }));
@@ -622,12 +650,16 @@ function renderSample(ed, t){
   const tog = el('label', 'toggle'); const cb = el('input'); cb.type = 'checkbox'; cb.id = 'loop_' + t.id; cb.checked = t.loop;
   cb.addEventListener('change', () => { t.loop = cb.checked; save(); restartLive(t); }); tog.append(cb, el('span', null, '播完自動重頭循環'));
   s.append(sl, tog); ed.append(s);
-  ed.append(el('p', 'note', '原型版：錄音和檔案只放在記憶體裡，重新整理要再錄或再拖一次。正式版會存起來。'));
+  ed.append(el('p', 'note', '錄音和檔案會存在這台裝置裡，關掉重開還在；換一台裝置要重新放。'));
 }
 function loadFile(t, file){
-  ensureAudio(); const r = new FileReader();
-  r.onload = () => ctx.decodeAudioData(r.result).then(buf => { samples.set(t.id, buf); t.fileName = file.name; t.duration = buf.duration; t.start = 0; if (t.name === TYPE_NAME.sample) t.name = file.name.replace(/\.[^.]+$/, ''); save(); restartLive(t); renderTracks(); renderEditor(); toast('已放進「' + t.name + '」這一軌，按 ▶ 播放就會跟其他軌一起響'); })
-    .catch(() => toast('這個檔案讀不出來，換一個 MP3 或 WAV 試試'));
+  if (file.size > 20 * 1024 * 1024) { toast('檔案太大了，請用 20 MB 以內的音檔'); return; }
+  const r = new FileReader();
+  r.onload = () => { const bytes = r.result; decodeBytes(bytes).then(buf => {
+      samples.set(t.id, buf); t.fileName = file.name; t.duration = buf.duration; t.start = 0; if (t.name === TYPE_NAME.sample) t.name = file.name.replace(/\.[^.]+$/, '');
+      idb.put(t.id, {bytes, type: file.type, name: file.name});
+      save(); restartLive(t); renderTracks(); renderEditor(); toast('已放進「' + t.name + '」這一軌，按 ▶ 播放就會跟其他軌一起響');
+    }).catch(() => toast('這個檔案讀不出來，換一個 MP3 或 WAV 試試')); };
   r.readAsArrayBuffer(file);
 }
 let rec = null;
@@ -672,7 +704,7 @@ document.addEventListener('keydown', e => {
 
 /* ---------- 其他操作 ---------- */
 function togglePlay(){ playing ? stop() : start(); }
-function removeTrack(t){ if (rec && rec.t === t) stopRecording(); stopLive(t); nodes.delete(t.id); samples.delete(t.id); project.tracks = project.tracks.filter(x => x !== t); if (sel === t.id) sel = null; applyAllMix(); save(); renderTracks(); renderEditor(); }
+function removeTrack(t){ if (rec && rec.t === t) stopRecording(); stopLive(t); nodes.delete(t.id); samples.delete(t.id); idb.del(t.id); project.tracks = project.tracks.filter(x => x !== t); if (sel === t.id) sel = null; applyAllMix(); save(); renderTracks(); renderEditor(); }
 function addTrack(type){
   if (project.tracks.length >= 8) { toast('最多 8 軌，先刪掉一軌再加'); return; }
   const wantMic = type === 'mic'; if (wantMic) type = 'sample';
@@ -694,10 +726,40 @@ $('modalClose').addEventListener('click', () => { $('modal').hidden = true; });
 $('modal').addEventListener('click', e => { if (e.target === $('modal')) $('modal').hidden = true; });
 $('copyLink').addEventListener('click', () => { const inp = $('shareLink'); const done = () => toast('已複製連結'); const fallback = () => { inp.select(); done(); };
   if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(inp.value).then(done, fallback); else fallback(); });
-$('exportBtn').addEventListener('click', () => toast('原型版先不支援匯出。正式版會把混好的結果輸出成 WAV 存到電腦。'));
+let rendering = false;
+function encodeWav(buf){
+  const ch = buf.numberOfChannels, len = buf.length, sr = buf.sampleRate, bytes = 44 + len * ch * 2, ab = new ArrayBuffer(bytes), v = new DataView(ab);
+  const str = (o, x) => { for (let i = 0; i < x.length; i++) v.setUint8(o + i, x.charCodeAt(i)); };
+  str(0, 'RIFF'); v.setUint32(4, bytes - 8, true); str(8, 'WAVE'); str(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, ch, true);
+  v.setUint32(24, sr, true); v.setUint32(28, sr * ch * 2, true); v.setUint16(32, ch * 2, true); v.setUint16(34, 16, true); str(36, 'data'); v.setUint32(40, len * ch * 2, true);
+  const chans = []; for (let c = 0; c < ch; c++) chans.push(buf.getChannelData(c));
+  let o = 44; for (let i = 0; i < len; i++) for (let c = 0; c < ch; c++) { const x = Math.max(-1, Math.min(1, chans[c][i])); v.setInt16(o, x < 0 ? x * 32768 : x * 32767, true); o += 2; }
+  return new Blob([ab], {type: 'audio/wav'});
+}
+async function exportWav(){
+  if (rendering) return; rendering = true;
+  const OC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+  if (!OC) { toast('這個瀏覽器不支援輸出'); rendering = false; return; }
+  if (playing) stop();
+  const loops = 4, sr = 44100, dur = stepDur() * STEPS * loops + 1.5;
+  const saved = {ctx, master, reverbNode, delayNode, nodes: new Map(nodes), noise: Object.assign({}, noiseBuf)};
+  try {
+    toast('正在輸出 ' + loops + ' 小節，請稍等…');
+    ctx = new OC(2, Math.ceil(sr * dur), sr); nodes.clear(); buildGraph();
+    project.tracks.forEach(t => { if (t.type === 'texture') startTexture(t); if (t.type === 'sample') startSample(t); });
+    for (let i = 0; i < STEPS * loops; i++) scheduleStep(i % STEPS, 0.02 + i * stepDur());
+    const out = await ctx.startRendering();
+    const url = URL.createObjectURL(encodeWav(out)); const a = document.createElement('a'); a.href = url; a.download = (project.name || 'mixmusic') + '.wav'; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 30000);
+    toast('已輸出 WAV，長度約 ' + Math.round(dur) + ' 秒。沒有出現下載的話，請到 mixmusic.vercel.app 操作');
+  } catch (e) { toast('輸出失敗：' + ((e && e.message) || e)); }
+  finally { ctx = saved.ctx; master = saved.master; reverbNode = saved.reverbNode; delayNode = saved.delayNode; nodes.clear(); saved.nodes.forEach((v, k) => nodes.set(k, v)); Object.assign(noiseBuf, saved.noise); rendering = false; }
+}
+$('exportBtn').addEventListener('click', exportWav);
+$('fab').addEventListener('click', togglePlay);
 const resetBtn = $('resetBtn');
 resetBtn.addEventListener('click', () => {
-  if (resetBtn.dataset.arm) { if (playing) stop(); nodes.clear(); samples.clear(); defaultProject(); sel = project.tracks[0].id; save(); syncTop(); renderTracks(); renderEditor(); delete resetBtn.dataset.arm; resetBtn.textContent = '還原'; toast('已回到一開始的範例'); }
+  if (resetBtn.dataset.arm) { if (playing) stop(); nodes.clear(); samples.clear(); idb.clear(); defaultProject(); sel = project.tracks[0].id; save(); syncTop(); renderTracks(); renderEditor(); delete resetBtn.dataset.arm; resetBtn.textContent = '還原'; toast('已回到一開始的範例'); }
   else { resetBtn.dataset.arm = '1'; resetBtn.textContent = '確定還原？再按一次'; setTimeout(() => { delete resetBtn.dataset.arm; resetBtn.textContent = '還原'; }, 3000); }
 });
 function syncTop(){ $('bpm').value = project.bpm; $('bpmVal').textContent = project.bpm; $('master').value = Math.round(project.master.volume * 100); }
@@ -706,7 +768,14 @@ function syncTop(){ $('bpm').value = project.bpm; $('bpmVal').textContent = proj
 load(); syncTop();
 try { if (localStorage.getItem(SAVE_KEY + '.hint')) $('hint').hidden = true; } catch (e) {}
 sel = project.tracks[0] ? project.tracks[0].id : null;
-renderTracks(); renderEditor();
+renderTracks(); renderEditor(); restoreFiles();
+(function iosHint(){
+  const ua = navigator.userAgent, isIOS = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+  const standalone = window.navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches;
+  let dismissed = false; try { dismissed = !!localStorage.getItem(SAVE_KEY + '.ioshint'); } catch (e) {}
+  if (isIOS && !standalone && !dismissed && location.protocol === 'https:' && !/claude/.test(location.hostname)) $('iosHint').hidden = false;
+  $('iosHintClose').addEventListener('click', () => { $('iosHint').hidden = true; try { localStorage.setItem(SAVE_KEY + '.ioshint', '1'); } catch (e) {} });
+})();
 
 /* ---------- PWA：安裝與離線 ---------- */
 let installPrompt = null;
