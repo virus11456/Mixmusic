@@ -38,3 +38,9 @@
 - Wikimedia Commons：有公有領域音效，但這台機器對它的 API 被限流，暫未使用。
 
 處理用的指令在 repo 外的 `process.py`（ffmpeg：atrim → 交叉淡化 amix → loudnorm → libmp3lame 96k）。
+
+## AI 生成
+
+| 檔案 | App 裡的名稱 | 說明 |
+|---|---|---|
+| aidemo.mp3 | 🤖 AI 示範曲 | 2026-10-03 用 vidIQ 的 AI 音樂生成做的 72 秒純音樂（提示：江湖算命先生、二胡、木吉他、神秘民謠）。vidIQ 標示為 royalty-free。 |

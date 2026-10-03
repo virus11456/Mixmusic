@@ -153,6 +153,18 @@ canvas.wave{width:100%;height:80px;display:block;background:var(--surface-2);bor
 .proj-open{text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .proj-when{font-size:12px;color:var(--muted);white-space:nowrap}
 .proj-del{font-size:12px;min-height:32px;padding:4px 10px;color:#c43d2b}
+.modal.ai{max-width:560px}
+.tabs{display:flex;gap:6px;border-bottom:1px solid var(--line);padding-bottom:8px}
+.tab{border-radius:999px;min-height:36px;padding:6px 14px;font-size:14px}
+.tab.active{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.pane{display:flex;flex-direction:column;gap:10px}
+.pane textarea{font:inherit;color:var(--fg);background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:10px 12px;resize:vertical;min-height:72px}
+.chips.small button{font-size:13px;min-height:32px;padding:4px 12px}
+.row{display:flex;align-items:center;gap:12px}
+.row.wrap{flex-wrap:wrap}
+.primary{background:var(--accent);color:var(--accent-fg);border-color:transparent;font-weight:700}
+.primary:hover{background:var(--accent);filter:brightness(1.06)}
+.primary[disabled]{opacity:.6;cursor:wait}
 .linkbox input{flex:1;font:inherit;font-family:var(--font-mono);color:inherit;background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:8px 10px;min-width:0}
 
 @media (max-width:720px){
@@ -179,6 +191,7 @@ canvas.wave{width:100%;height:80px;display:block;background:var(--surface-2);bor
     <label class="ctl" for="bpm">速度 <input type="range" id="bpm" min="60" max="180" step="1" value="110"> <span class="val mono" id="bpmVal">110</span></label>
     <label class="ctl" for="master">總音量 <input type="range" id="master" min="0" max="100" step="1" value="80"></label>
     <div class="actions">
+      <button id="aiBtn">✨ AI</button>
       <button id="shareBtn">分享</button>
       <button id="exportBtn">匯出 WAV</button>
       <button id="resetBtn">還原</button>
@@ -207,6 +220,44 @@ canvas.wave{width:100%;height:80px;display:block;background:var(--surface-2);bor
   <div id="offline" class="hint" hidden><span>目前離線中。App 和你存的東西都還能用，分享和上傳要等連上網路。</span></div>
   <button id="fab" class="fab" aria-label="播放">▶</button>
   <div id="toast" class="toast" hidden></div>
+  <div id="aiModal" class="backdrop" hidden>
+    <div class="modal ai" role="dialog" aria-modal="true" aria-labelledby="aiTitle">
+      <h2 id="aiTitle">✨ 讓 AI 幫忙</h2>
+      <div class="tabs" role="tablist">
+        <button id="tabCompose" class="tab active" role="tab" aria-selected="true">幫我編曲</button>
+        <button id="tabMusic" class="tab" role="tab" aria-selected="false">生成一段音樂</button>
+        <button id="tabKeys" class="tab" role="tab" aria-selected="false">AI 設定</button>
+      </div>
+      <div id="paneCompose" class="pane">
+        <p class="note" style="margin:0">用一句話描述想要的感覺，AI 會把鼓、旋律、環境音、速度全部設定好，變成一首新作品，你再自己調。</p>
+        <textarea id="composePrompt" rows="3" maxlength="500" placeholder="例如：下雨天的咖啡廳，慢一點的 lo-fi，有一條溫暖的貝斯"></textarea>
+        <div class="chips small" id="composeExamples">
+          <button type="button">下雨天的咖啡廳，慢一點的 lo-fi</button>
+          <button type="button">清晨森林裡的鳥叫，輕快的電子舞曲</button>
+          <button type="button">神秘的算命先生，慢而詭異，有雷聲</button>
+          <button type="button">復古電玩闖關音樂，很快很跳</button>
+          <button type="button">海邊營火，放鬆的嘻哈節奏</button>
+        </div>
+        <div class="row"><button id="composeGo" class="primary">✨ 幫我編曲</button><span id="composeStatus" class="note"></span></div>
+      </div>
+      <div id="paneMusic" class="pane" hidden>
+        <p class="note" style="margin:0">描述一段音樂，AI 直接做出一整段音檔，放進來當一軌（可以循環、調音量和效果，但不能分開改裡面的樂器）。</p>
+        <textarea id="musicPrompt" rows="3" maxlength="800" placeholder="例如：二胡和木吉他的神秘民謠，慢板，有一點電影感"></textarea>
+        <div class="row wrap">
+          <label class="ctl" for="musicSeconds">長度 <input type="range" id="musicSeconds" min="10" max="90" step="5" value="30"> <span class="val mono" id="musicSecondsVal">30</span> 秒</label>
+          <label class="toggle"><input type="checkbox" id="musicInstrumental" checked> 純音樂（不要人聲）</label>
+        </div>
+        <div class="row"><button id="musicGo" class="primary">🎵 生成一軌</button><span id="musicStatus" class="note"></span></div>
+      </div>
+      <div id="paneKeys" class="pane" hidden>
+        <p class="note" style="margin:0">AI 功能需要金鑰。如果網站管理員已經在伺服器設定好，這裡留空就能用；否則貼上你自己的金鑰，只會存在這台裝置的瀏覽器裡。</p>
+        <label class="field" for="keyAnthropic">Anthropic API 金鑰（幫我編曲用）<input id="keyAnthropic" type="password" placeholder="sk-ant-…" autocomplete="off"></label>
+        <label class="field" for="keyEleven">ElevenLabs API 金鑰（生成音樂用）<input id="keyEleven" type="password" placeholder="xi-…" autocomplete="off"></label>
+        <p class="note" style="margin:0">申請：Anthropic 到 console.anthropic.com，ElevenLabs 到 elevenlabs.io。兩邊都有免費額度。</p>
+      </div>
+      <div style="display:flex;justify-content:flex-end"><button id="aiClose">關閉</button></div>
+    </div>
+  </div>
   <div id="libModal" class="backdrop" hidden>
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="libTitle">
       <h2 id="libTitle">我的作品</h2>
@@ -287,6 +338,7 @@ const REAL = [
   ['rain','雨'], ['rainthunder','雷雨'], ['waves','海浪'], ['river','溪流'], ['fire','營火'], ['wind','風'],
   ['birds','鳥叫'], ['morning','清晨'], ['crickets','蟲鳴'], ['nightforest','夜晚森林'], ['park','公園'],
   ['traffic','街道車流'], ['citynight','城市夜晚'], ['crowd','人群'], ['cafe','咖啡廳'], ['subway','地鐵'],
+  ['aidemo','🤖 AI 示範曲'],
 ];
 REAL.forEach(([id, label]) => { TEXTURES['r:' + id] = {file: 'sounds/' + id + '.mp3', label, minHz: 250, maxHz: 16000, rate: 0.25, gain: 1, dl: '明亮', ml: '起伏'}; });
 const texLabel = (key) => (TEXTURES[key] && TEXTURES[key].label) || key;
@@ -922,6 +974,77 @@ async function exportWav(){
 $('exportBtn').addEventListener('click', exportWav);
 $('fab').addEventListener('click', togglePlay);
 $('projBtn').addEventListener('click', () => { renderLibrary(); $('libModal').hidden = false; $('projName').focus(); });
+
+/* ---------- AI：幫我編曲／生成一軌 ---------- */
+const KEYS_KEY = 'mixmusic.ai.keys';
+const aiKeys = (() => { try { return JSON.parse(localStorage.getItem(KEYS_KEY) || '{}') || {}; } catch (e) { return {}; } })();
+function saveKeys(){ try { localStorage.setItem(KEYS_KEY, JSON.stringify(aiKeys)); } catch (e) {} }
+$('keyAnthropic').value = aiKeys.anthropic || ''; $('keyEleven').value = aiKeys.eleven || '';
+$('keyAnthropic').addEventListener('input', e => { aiKeys.anthropic = e.target.value.trim(); saveKeys(); });
+$('keyEleven').addEventListener('input', e => { aiKeys.eleven = e.target.value.trim(); saveKeys(); });
+const aiAvailable = () => location.protocol !== 'file:' && !/claude\.ai$/.test(location.hostname);
+function showTab(name){
+  [['Compose', 'tabCompose', 'paneCompose'], ['Music', 'tabMusic', 'paneMusic'], ['Keys', 'tabKeys', 'paneKeys']].forEach(([n, tb, pn]) => { const on = n === name; $(tb).classList.toggle('active', on); $(tb).setAttribute('aria-selected', on); $(pn).hidden = !on; });
+}
+$('tabCompose').addEventListener('click', () => showTab('Compose')); $('tabMusic').addEventListener('click', () => showTab('Music')); $('tabKeys').addEventListener('click', () => showTab('Keys'));
+$('aiBtn').addEventListener('click', () => { $('aiModal').hidden = false; if (!aiAvailable()) toast('AI 功能要在正式網址 mixmusic.vercel.app 上才能用'); });
+$('aiClose').addEventListener('click', () => { $('aiModal').hidden = true; });
+$('aiModal').addEventListener('click', e => { if (e.target === $('aiModal')) $('aiModal').hidden = true; });
+$('composeExamples').querySelectorAll('button').forEach(b => b.addEventListener('click', () => { $('composePrompt').value = b.textContent; $('composePrompt').focus(); }));
+$('musicSeconds').addEventListener('input', e => { $('musicSecondsVal').textContent = e.target.value; });
+
+async function callApi(path, body, key, asBlob){
+  const r = await fetch(path, { method: 'POST', headers: Object.assign({ 'Content-Type': 'application/json' }, key ? { 'x-user-key': key } : {}), body: JSON.stringify(body) });
+  if (!r.ok) { let msg = '伺服器錯誤 ' + r.status; try { const j = await r.json(); msg = j.message || msg; if (j.error === 'no_key' || j.error === 'invalid_key') { showTab('Keys'); } } catch (e) {} throw new Error(msg); }
+  return asBlob ? r.blob() : r.json();
+}
+function specToProject(spec, prompt){
+  const p = defaultProject(); p.tracks = []; p.id = uid(); p.name = spec.name || ('AI：' + prompt.slice(0, 10)); p.bpm = spec.bpm;
+  const mix = (m, extra) => Object.assign(defaultMixer(), extra || {}, m || {});
+  const prevProject = project; project = p;
+  if (spec.drum && spec.drum.enabled) {
+    const t = makeTrack('drum'); t.name = '鼓'; t.tune = spec.drum.tune; t.decay = spec.drum.decay; t.mixer = mix({ volume: spec.drum.volume, reverb: spec.drum.reverb });
+    t.grid = DRUMS.map(d => (spec.drum[d.id] || Array(STEPS).fill(0)).map(v => v ? 1 : 0)); p.tracks.push(t);
+  }
+  (spec.synths || []).forEach(sy => {
+    const t = makeTrack('synth'); t.name = sy.name; t.sound = { shape: sy.shape, pitch: sy.pitch, brightness: sy.brightness, attack: sy.attack, release: sy.release, vibrato: sy.vibrato };
+    t.grid = emptyGrid(8); (sy.notes || []).forEach(n => { if (t.grid[n.pitch]) t.grid[n.pitch][n.step] = 1; });
+    t.mixer = mix({ volume: sy.volume, pan: sy.pan, reverb: sy.reverb, delay: sy.delay, distortion: sy.distortion }); p.tracks.push(t);
+  });
+  (spec.textures || []).forEach(tx => {
+    if (!TEXTURES[tx.preset]) return; const t = makeTrack('texture'); t.preset = tx.preset; t.name = texLabel(tx.preset); t.params = { density: tx.density, movement: tx.movement };
+    t.mixer = mix({ volume: tx.volume, reverb: tx.reverb }); p.tracks.push(t);
+  });
+  project = prevProject;
+  if (!p.tracks.length) { project = p; const t = makeTrack('drum'); p.tracks.push(t); project = prevProject; }
+  return p;
+}
+$('composeGo').addEventListener('click', async () => {
+  const prompt = $('composePrompt').value.trim(); if (!prompt) { $('composeStatus').textContent = '先寫一句描述'; return; }
+  if (!aiAvailable()) { toast('AI 功能要在正式網址 mixmusic.vercel.app 上才能用'); return; }
+  const btn = $('composeGo'), st = $('composeStatus'); btn.disabled = true; st.textContent = 'AI 正在想，大約 10～30 秒…';
+  try {
+    const { spec } = await callApi('api/compose', { prompt }, aiKeys.anthropic);
+    clearTimeout(saveT); persistNow();
+    const p = specToProject(spec, prompt); lib.list.unshift({ id: p.id, name: p.name, updated: Date.now() }); lsSet(PKEY(p.id), p);
+    switchProject(p.id); $('aiModal').hidden = true; st.textContent = '';
+    toast('AI 做好了「' + p.name + '」，按 ▶ 聽聽看，不喜歡就自己改'); if (!playing) start();
+  } catch (e) { st.textContent = e.message || String(e); }
+  finally { btn.disabled = false; }
+});
+$('musicGo').addEventListener('click', async () => {
+  const prompt = $('musicPrompt').value.trim(); if (!prompt) { $('musicStatus').textContent = '先寫一句描述'; return; }
+  if (!aiAvailable()) { toast('AI 功能要在正式網址 mixmusic.vercel.app 上才能用'); return; }
+  const btn = $('musicGo'), st = $('musicStatus'); btn.disabled = true; st.textContent = 'AI 正在作曲，大約 20～60 秒…';
+  try {
+    const blob = await callApi('api/music', { prompt, seconds: +$('musicSeconds').value, instrumental: $('musicInstrumental').checked }, aiKeys.eleven, true);
+    if (project.tracks.length >= 8) throw new Error('最多 8 軌，先刪掉一軌再生成');
+    const t = makeTrack('sample'); t.name = 'AI：' + prompt.slice(0, 12); project.tracks.push(t); if (ctx) getChain(t); save(); select(t.id);
+    loadFile(t, new File([blob], t.name + '.mp3', { type: blob.type || 'audio/mpeg' }));
+    $('aiModal').hidden = true; st.textContent = ''; if (!playing) start();
+  } catch (e) { st.textContent = e.message || String(e); }
+  finally { btn.disabled = false; }
+});
 $('libClose').addEventListener('click', () => { $('libModal').hidden = true; });
 $('libModal').addEventListener('click', e => { if (e.target === $('libModal')) $('libModal').hidden = true; });
 $('projNew').addEventListener('click', newProject);
