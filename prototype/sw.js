@@ -1,5 +1,5 @@
 /* Mixmusic 原型 Service Worker：把整個 App 存在裝置裡，離線也能開。 */
-const CACHE = 'mixmusic-proto-v2';
+const CACHE = 'mixmusic-proto-v3';
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png', './icon.svg'];
 
 self.addEventListener('install', (e) => {
