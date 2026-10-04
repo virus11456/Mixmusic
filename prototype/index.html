@@ -59,6 +59,7 @@ input[type=range]{accent-color:var(--accent);width:100%;height:28px;margin:0}
 .actions button{font-size:14px}
 .hint{background:var(--surface-2);border:1px dashed var(--line);border-radius:12px;padding:10px 14px;color:var(--muted);font-size:14px;display:flex;justify-content:space-between;gap:12px;align-items:center}
 .hint button{min-height:32px;padding:4px 10px;font-size:13px}
+.hint.shared{border-style:solid;border-color:var(--accent);background:var(--surface)}
 
 /* 軌道列表 */
 .tracks{display:flex;flex-direction:column;gap:8px}
@@ -199,6 +200,7 @@ canvas.wave{width:100%;height:80px;display:block;background:var(--surface-2);bor
     </div>
   </header>
 
+  <div id="sharedBanner" class="hint shared" hidden><span>這是別人分享的作品「<b id="sharedName"></b>」。可以聽、可以亂調，但不會存。</span><button id="copyShared" class="primary">複製一份來改</button></div>
   <div id="iosHint" class="hint" hidden><span>想把 Mixmusic 裝到桌面：按 Safari 下方的 <b>分享</b> 圖示，再選 <b>加入主畫面</b>。之後離線也能玩。</span><button id="iosHintClose">知道了</button></div>
   <div id="hint" class="hint"><span>先按 <b>▶ 播放</b> 聽聽看，再點任何一軌、改任何一個格子或滑桿。怎麼亂調都不會壞。<br>用 iPhone 的話，記得把側邊的靜音開關關掉、音量調大。</span><button id="hintClose">知道了</button></div>
 
@@ -270,9 +272,10 @@ canvas.wave{width:100%;height:80px;display:block;background:var(--surface-2);bor
   <div id="modal" class="backdrop" hidden>
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
       <h2 id="modalTitle">分享這首</h2>
-      <p class="note" style="margin:0">別人打開連結可以直接聽，也能按「複製一份來改」接著玩。</p>
-      <div class="linkbox"><input id="shareLink" type="text" readonly value="https://mixmusic.app/s/k7Qx2m"><button id="copyLink">複製</button></div>
-      <p class="note" style="margin:0">原型版：這個連結只是示意，正式版才會真的存起來。</p>
+      <p class="note" style="margin:0">會把目前的作品存成一個快照，別人打開連結可以直接聽，也能按「複製一份來改」接著玩。你之後再改不會影響已分享的連結。</p>
+      <div class="row"><button id="shareGo" class="primary">產生連結</button><span id="shareStatus" class="note"></span></div>
+      <div class="linkbox" id="shareBox" hidden><input id="shareLink" type="text" readonly value=""><button id="copyLink">複製</button></div>
+      <p class="note" style="margin:0">錄音和上傳的音檔會一起分享（單檔 4 MB 以內）。請只分享你有權利使用的聲音。</p>
       <div style="display:flex;justify-content:flex-end"><button id="modalClose">關閉</button></div>
     </div>
   </div>
@@ -338,7 +341,7 @@ const REAL = [
   ['rain','雨'], ['rainthunder','雷雨'], ['waves','海浪'], ['river','溪流'], ['fire','營火'], ['wind','風'],
   ['birds','鳥叫'], ['morning','清晨'], ['crickets','蟲鳴'], ['nightforest','夜晚森林'], ['park','公園'],
   ['traffic','街道車流'], ['citynight','城市夜晚'], ['crowd','人群'], ['cafe','咖啡廳'], ['subway','地鐵'],
-  ['aidemo','🤖 AI 示範曲'],
+  ['aidemo','🤖 AI：江湖算命'], ['ai-lofi','🤖 AI：Lo-fi'], ['ai-edm','🤖 AI：電子舞曲'], ['ai-ambient','🤖 AI：冥想氛圍'], ['ai-cpop','🤖 AI：古箏嘻哈'],
 ];
 REAL.forEach(([id, label]) => { TEXTURES['r:' + id] = {file: 'sounds/' + id + '.mp3', label, minHz: 250, maxHz: 16000, rate: 0.25, gain: 1, dl: '明亮', ml: '起伏'}; });
 const texLabel = (key) => (TEXTURES[key] && TEXTURES[key].label) || key;
@@ -423,7 +426,8 @@ function load(){
   openProject(lib.list.some(x => x.id === lib.current) ? lib.current : lib.list[0].id);
 }
 let saveT = null;
-function persistNow(){ lsSet(PKEY(project.id), project); const e = lib.list.find(x => x.id === project.id); if (e) { e.name = project.name; e.updated = Date.now(); } writeLib(); }
+let viewingShare = false;
+function persistNow(){ if (viewingShare) return; lsSet(PKEY(project.id), project); const e = lib.list.find(x => x.id === project.id); if (e) { e.name = project.name; e.updated = Date.now(); } writeLib(); }
 function save(){ clearTimeout(saveT); saveT = setTimeout(persistNow, 300); }
 function switchProject(id){
   if (playing) stop(); if (rec) stopRecording(); clearTimeout(saveT); persistNow();
@@ -936,7 +940,52 @@ $('master').addEventListener('input', e => { project.master.volume = e.target.va
 $('hintClose').addEventListener('click', hideHint);
 $('addBtn').addEventListener('click', () => { $('addMenu').hidden = !$('addMenu').hidden; });
 $('addMenu').querySelectorAll('button').forEach(b => b.addEventListener('click', () => addTrack(b.dataset.type)));
-$('shareBtn').addEventListener('click', () => { $('modal').hidden = false; });
+$('shareBtn').addEventListener('click', () => { $('modal').hidden = false; $('shareBox').hidden = true; $('shareStatus').textContent = ''; if (!aiAvailable()) toast('分享功能要在正式網址 mixmusic.vercel.app 上才能用'); });
+const bufToB64 = (buf) => { let bin = ''; const bytes = new Uint8Array(buf); for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000)); return btoa(bin); };
+async function shareProject(){
+  const btn = $('shareGo'), st = $('shareStatus'); btn.disabled = true;
+  try {
+    if (!aiAvailable()) throw new Error('分享功能要在正式網址 mixmusic.vercel.app 上才能用');
+    clearTimeout(saveT); persistNow();
+    const snap = JSON.parse(JSON.stringify(project)); delete snap.id; snap.sharedFrom = project.name; const skipped = [];
+    for (const t of snap.tracks) {
+      if (t.type !== 'sample') continue; t.remote = null;
+      const row = await idb.get(t.id); if (!row || !row.bytes) { skipped.push(t.name); continue; }
+      if (row.bytes.byteLength > 4 * 1024 * 1024) { skipped.push(t.name + '（超過 4 MB）'); continue; }
+      st.textContent = '上傳「' + t.name + '」…';
+      const r = await fetch('api/share?file=' + encodeURIComponent(row.name || 'audio'), { method: 'PUT', headers: { 'Content-Type': row.type || 'application/octet-stream' }, body: row.bytes });
+      if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.message || ('上傳失敗 ' + r.status)); }
+      t.remote = (await r.json()).url;
+    }
+    st.textContent = '存快照…';
+    const r = await fetch('api/share', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ project: snap }) });
+    if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.message || ('分享失敗 ' + r.status)); }
+    const { id } = await r.json();
+    const link = location.origin + location.pathname.replace(/index\.html$/, '') + '?s=' + id;
+    $('shareLink').value = link; $('shareBox').hidden = false; st.textContent = skipped.length ? '這些軌沒有一起分享：' + skipped.join('、') : '完成！';
+  } catch (e) { st.textContent = e.message || String(e); }
+  finally { btn.disabled = false; }
+}
+$('shareGo').addEventListener('click', shareProject);
+const remoteBytes = new Map();
+async function openShared(id){
+  const r = await fetch('api/share?id=' + encodeURIComponent(id)); if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.message || ('讀取失敗 ' + r.status)); }
+  const data = await r.json(); const p = migrate(data.project); p.id = 'shared_' + id;
+  if (playing) stop(); nodes.clear(); samples.clear(); viewingShare = true; project = p; if (ctx) project.tracks.forEach(getChain);
+  sel = p.tracks[0] ? p.tracks[0].id : null; syncTop(); renderTracks(); renderEditor();
+  $('sharedName').textContent = p.sharedFrom || p.name; $('sharedBanner').hidden = false; $('hint').hidden = true; $('projBtn').textContent = p.name + ' ▾';
+  p.tracks.filter(t => t.type === 'sample' && t.remote).forEach(t => fetch(t.remote).then(x => x.ok ? x.arrayBuffer() : Promise.reject(new Error(x.status))).then(bytes => {
+    remoteBytes.set(t.id, { bytes, type: 'audio/mpeg', name: t.fileName || t.name });
+    return decodeBytes(bytes).then(buf => { samples.set(t.id, buf); t.duration = buf.duration; if (playing) restartLive(t); renderTracks(); if (sel === t.id) renderEditor(); });
+  }).catch(() => toast('「' + t.name + '」的音檔載入失敗')));
+}
+$('copyShared').addEventListener('click', () => {
+  const p = project; viewingShare = false; p.id = uid(); p.name = (p.sharedFrom || p.name) + '（我的版本）'; delete p.sharedFrom;
+  p.tracks.forEach(t => { if (t.type === 'sample') { const rb = remoteBytes.get(t.id); if (rb) idb.put(t.id, rb); delete t.remote; } });
+  lib.list.unshift({ id: p.id, name: p.name, updated: Date.now() }); lib.current = p.id; persistNow(); renderLibrary();
+  $('sharedBanner').hidden = true; try { history.replaceState(null, '', location.pathname); } catch (e) {}
+  toast('已複製成你的作品「' + p.name + '」，之後會自動存');
+});
 $('modalClose').addEventListener('click', () => { $('modal').hidden = true; });
 $('modal').addEventListener('click', e => { if (e.target === $('modal')) $('modal').hidden = true; });
 $('copyLink').addEventListener('click', () => { const inp = $('shareLink'); const done = () => toast('已複製連結'); const fallback = () => { inp.select(); done(); };
@@ -1061,6 +1110,7 @@ load(); syncTop();
 try { if (localStorage.getItem(SAVE_KEY + '.hint')) $('hint').hidden = true; } catch (e) {}
 sel = project.tracks[0] ? project.tracks[0].id : null;
 renderTracks(); renderEditor(); restoreFiles(); renderLibrary();
+(function sharedLink(){ let id = null; try { id = new URLSearchParams(location.search).get('s'); } catch (e) {} if (id && /^[A-Za-z0-9]{6,16}$/.test(id)) openShared(id).catch(e => toast(e.message || String(e))); })();
 (function iosHint(){
   const ua = navigator.userAgent, isIOS = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
   const standalone = window.navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches;

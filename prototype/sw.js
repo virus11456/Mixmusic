@@ -1,6 +1,6 @@
 /* Mixmusic 原型 Service Worker：把整個 App 存在裝置裡，離線也能開。 */
-const CACHE = 'mixmusic-proto-v7';
-const SOUNDS = ['rain','rainthunder','waves','river','fire','wind','birds','morning','crickets','nightforest','park','traffic','citynight','crowd','cafe','subway','aidemo'].map(n => './sounds/' + n + '.mp3');
+const CACHE = 'mixmusic-proto-v9';
+const SOUNDS = ['rain','rainthunder','waves','river','fire','wind','birds','morning','crickets','nightforest','park','traffic','citynight','crowd','cafe','subway','aidemo','ai-lofi','ai-edm','ai-ambient','ai-cpop'].map(n => './sounds/' + n + '.mp3');
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png', './icon.svg'];
 
 self.addEventListener('install', (e) => {
@@ -13,6 +13,7 @@ self.addEventListener('fetch', (e) => {
   const req = e.request;
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
+  if (url.pathname.startsWith('/api/')) return;
   // 自己的檔案：先拿快取，背景再更新（下次打開就是新版）。
   if (url.origin === self.location.origin) {
     e.respondWith(caches.match(req, { ignoreSearch: true }).then((hit) => {

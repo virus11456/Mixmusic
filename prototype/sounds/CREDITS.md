@@ -43,4 +43,8 @@
 
 | 檔案 | App 裡的名稱 | 說明 |
 |---|---|---|
-| aidemo.mp3 | 🤖 AI 示範曲 | 2026-10-03 用 vidIQ 的 AI 音樂生成做的 72 秒純音樂（提示：江湖算命先生、二胡、木吉他、神秘民謠）。vidIQ 標示為 royalty-free。 |
+| aidemo.mp3 | 🤖 AI：江湖算命 | 2026-10-03 用 vidIQ 的 AI 音樂生成做的 72 秒純音樂（提示：江湖算命先生、二胡、木吉他、神秘民謠）。vidIQ 標示為 royalty-free。 |
+| ai-lofi.mp3 | 🤖 AI：Lo-fi | 2026-10-04 vidIQ 生成，65 秒。提示：lo-fi hip hop、Rhodes 電鋼琴、黑膠雜訊、82 bpm。 |
+| ai-edm.mp3 | 🤖 AI：電子舞曲 | 2026-10-04 vidIQ 生成，60 秒。提示：明亮合成器琶音、四拍大鼓、124 bpm 夏日節慶。 |
+| ai-ambient.mp3 | 🤖 AI：冥想氛圍 | 2026-10-04 vidIQ 生成，39 秒。提示：慢速合成器 pad、長殘響鋼琴、無鼓、冥想背景。 |
+| ai-cpop.mp3 | 🤖 AI：古箏嘻哈 | 2026-10-04 vidIQ 生成，65 秒。提示：古箏與笛子旋律配嘻哈節奏、808 低音、92 bpm。 |
