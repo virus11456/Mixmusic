@@ -1,5 +1,5 @@
 // AI 生成一段音樂：文字描述 → 音檔（MP3）。走 ElevenLabs Music API，前端拿到後當成一軌。
-import { readJson, userKey, clamp } from './_shared.js';
+import { readJson, userKey, clamp, sameOrigin } from './_shared.js';
 
 export const config = { maxDuration: 120 };
 
@@ -8,7 +8,9 @@ export default async function handler(req, res){
   const body = readJson(req);
   const prompt = String(body.prompt || '').trim().slice(0, 800);
   if (!prompt) return res.status(400).json({ error: 'empty', message: '先描述一下你想要的音樂' });
-  const apiKey = userKey(req, 'x-user-key') || process.env.ELEVENLABS_API_KEY || '';
+  const own = userKey(req, 'x-user-key');
+  if (!own && !sameOrigin(req)) return res.status(403).json({ error: 'forbidden', message: '只能從 Mixmusic 網站使用' });
+  const apiKey = own || process.env.ELEVENLABS_API_KEY || '';
   if (!apiKey) return res.status(503).json({ error: 'no_key', message: '還沒設定 AI 音樂的金鑰。請在「AI 設定」貼上你的 ElevenLabs API 金鑰，或由網站管理員在伺服器設定 ELEVENLABS_API_KEY。' });
   const seconds = Math.round(clamp(body.seconds, 10, 90, 30));
   const payload = { prompt, music_length_ms: seconds * 1000, model_id: 'music_v2', output_format: 'mp3_44100_128', force_instrumental: body.instrumental !== false };

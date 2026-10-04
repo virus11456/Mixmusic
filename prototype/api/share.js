@@ -17,13 +17,24 @@ async function rawBody(req){
   if (typeof req.body === 'string') return Buffer.from(req.body, 'binary');
   const chunks = []; for await (const c of req) chunks.push(c); return Buffer.concat(chunks);
 }
+const TYPES = ['drum', 'synth', 'texture', 'sample'];
+const BLOB_URL = /^https:\/\/[\w-]+\.public\.blob\.vercel-storage\.com\//;
+const isObj = (o) => o && typeof o === 'object' && !Array.isArray(o);
+function validProject(p){
+  if (!isObj(p) || !isObj(p.master) || !Array.isArray(p.tracks) || p.tracks.length > 8) return false;
+  return p.tracks.every(t => isObj(t) && TYPES.includes(t.type) && isObj(t.mixer)
+    && (t.type !== 'drum' || (Array.isArray(t.grid) && isObj(t.levels)))
+    && (t.type !== 'synth' || (Array.isArray(t.grid) && isObj(t.sound)))
+    && (t.type !== 'texture' || isObj(t.params))
+    && (t.type !== 'sample' || !t.remote || (typeof t.remote === 'string' && BLOB_URL.test(t.remote))));
+}
 const noStore = () => !(process.env.BLOB_READ_WRITE_TOKEN || (process.env.VERCEL_OIDC_TOKEN && process.env.BLOB_STORE_ID));
 
 export default async function handler(req, res){
   if (noStore()) return res.status(503).json({ error: 'no_store', message: '分享功能的儲存空間還沒接上（缺 BLOB_READ_WRITE_TOKEN）' });
   try {
     if (req.method === 'GET') {
-      const id = String(req.query.id || ''); if (!ID_RE.test(id)) return res.status(400).json({ error: 'bad_id', message: '連結格式不對' });
+      const id = String((req.query || {}).id || ''); if (!ID_RE.test(id)) return res.status(400).json({ error: 'bad_id', message: '連結格式不對' });
       const { blobs } = await list({ prefix: 'shares/' + id + '.json', limit: 1 });
       if (!blobs.length) return res.status(404).json({ error: 'not_found', message: '找不到這個作品，可能連結打錯或已被刪除' });
       const r = await fetch(blobs[0].url, { cache: 'no-store' }); if (!r.ok) return res.status(502).json({ error: 'upstream', message: '讀取失敗' });
@@ -32,7 +43,7 @@ export default async function handler(req, res){
       return res.status(200).json(data);
     }
     if (req.method === 'PUT') {
-      const name = String(req.query.file || 'audio').replace(/[^\w.\-一-鿿]+/g, '_').slice(0, 80);
+      const name = String((req.query || {}).file || 'audio').replace(/[^\w.\-一-鿿]+/g, '_').slice(0, 80);
       const body = await rawBody(req);
       if (!body.length) return res.status(400).json({ error: 'empty', message: '沒有收到檔案' });
       if (body.length > MAX_FILE) return res.status(413).json({ error: 'too_large', message: '單檔最多 4 MB' });
@@ -42,7 +53,7 @@ export default async function handler(req, res){
     }
     if (req.method === 'POST') {
       const data = readJson(req); const p = data && data.project;
-      if (!p || !Array.isArray(p.tracks)) return res.status(400).json({ error: 'bad_project', message: '作品資料不完整' });
+      if (!validProject(p)) return res.status(400).json({ error: 'bad_project', message: '作品資料不完整' });
       const json = JSON.stringify({ project: p, sharedAt: new Date().toISOString(), v: 1 });
       if (json.length > 2 * 1024 * 1024) return res.status(413).json({ error: 'too_large', message: '作品太大' });
       const id = newId();

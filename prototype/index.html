@@ -428,25 +428,28 @@ function load(){
   openProject(lib.list.some(x => x.id === lib.current) ? lib.current : lib.list[0].id);
 }
 let saveT = null;
-let viewingShare = false;
+let viewingShare = false; const remoteBytes = new Map();
 function persistNow(){ if (viewingShare) return; lsSet(PKEY(project.id), project); const e = lib.list.find(x => x.id === project.id); if (e) { e.name = project.name; e.updated = Date.now(); } writeLib(); }
 function save(){ clearTimeout(saveT); saveT = setTimeout(persistNow, 300); }
-function switchProject(id){
-  if (playing) stop(); if (rec) stopRecording(); clearTimeout(saveT); persistNow();
-  nodes.clear(); samples.clear(); openProject(id); if (ctx) project.tracks.forEach(getChain);
+const alive = (t) => project.tracks.includes(t);
+function leaveShared(){ viewingShare = false; remoteBytes.clear(); $('sharedBanner').hidden = true; try { if (location.search) history.replaceState(null, '', location.pathname); } catch (e) {} }
+function switchProject(id, keepCurrent = true){
+  if (playing) stop(); if (rec) stopRecording(); clearTimeout(saveT); if (keepCurrent) persistNow();
+  leaveShared(); nodes.clear(); samples.clear(); openProject(id); if (ctx) project.tracks.forEach(getChain);
   sel = project.tracks[0] ? project.tracks[0].id : null; syncTop(); renderTracks(); renderEditor(); restoreFiles(); renderLibrary();
 }
-function newProject(){
-  clearTimeout(saveT); persistNow();
+function newProject(keepCurrent = true){
+  clearTimeout(saveT); if (keepCurrent) persistNow();
   const p = defaultProject(); p.id = uid(); p.name = '新作品 ' + (lib.list.length + 1);
-  lib.list.unshift({id: p.id, name: p.name, updated: Date.now()}); lsSet(PKEY(p.id), p); switchProject(p.id); $('libModal').hidden = true; toast('已建立「' + p.name + '」，先幫它取個名字吧');
+  lib.list.unshift({id: p.id, name: p.name, updated: Date.now()}); lsSet(PKEY(p.id), p); switchProject(p.id, keepCurrent); $('libModal').hidden = true; toast('已建立「' + p.name + '」，先幫它取個名字吧');
 }
 function deleteProject(id){
   const p = lsGet(PKEY(id)); if (p && Array.isArray(p.tracks)) p.tracks.forEach(t => { if (t.type === 'sample') idb.del(t.id); });
   try { localStorage.removeItem(PKEY(id)); } catch (e) {}
   lib.list = lib.list.filter(x => x.id !== id);
-  if (!lib.list.length) { newProject(); return; }
-  if (lib.current === id) switchProject(lib.list[0].id); else { writeLib(); renderLibrary(); }
+  const cur = project && project.id === id;
+  if (!lib.list.length) { newProject(!cur); return; }
+  if (cur) switchProject(lib.list[0].id, false); else { writeLib(); renderLibrary(); }
 }
 function renderLibrary(){
   $('projBtn').textContent = project.name + ' ▾'; $('projName').value = project.name;
@@ -476,13 +479,13 @@ function decodeBytes(bytes){
 }
 function restoreFiles(){
   project.tracks.filter(t => t.type === 'sample' && t.fileName).forEach(t => idb.get(t.id).then(row => {
-    if (!row || !row.bytes) return;
-    return decodeBytes(row.bytes).then(buf => { samples.set(t.id, buf); t.duration = buf.duration; if (playing) restartLive(t); renderTracks(); if (sel === t.id) renderEditor(); });
+    if (!row || !row.bytes || !alive(t)) return;
+    return decodeBytes(row.bytes).then(buf => { if (!alive(t)) return; samples.set(t.id, buf); t.duration = buf.duration; if (playing) restartLive(t); renderTracks(); if (sel === t.id) renderEditor(); });
   }).catch(() => {}));
 }
 
 /* ---------- 聲音引擎（Web Audio） ---------- */
-let ctx = null, master = null, reverbNode = null, delayNode = null;
+let ctx = null, master = null, reverbNode = null, delayNode = null, rendering = false;
 const nodes = new Map();
 const noiseBuf = {};
 const samples = new Map();
@@ -591,7 +594,7 @@ function startTexture(t){
     if (!buf) {
       c.live = {kind: 'texture', pending: true};
       loadReal(def.file).then(() => { if (c.live && c.live.pending) { c.live = null; if (playing && TEXTURES[t.preset] === def) startTexture(t); } })
-        .catch(() => { if (c.live && c.live.pending) c.live = null; toast('「' + def.label + '」載入失敗，確認網路後再按一次播放'); });
+        .catch(() => { if (c.live && c.live.pending) c.live = null; if (alive(t)) toast('「' + def.label + '」載入失敗，確認網路後再按一次播放'); });
       return;
     }
     src = ctx.createBufferSource(); src.buffer = buf; src.loop = true; src.loopStart = 0.03; src.loopEnd = buf.duration - 0.03;
@@ -645,6 +648,7 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden && ct
 let playing = false, step = 0, nextTime = 0, timer = null, uiQueue = [], shownStep = -1;
 const stepDur = () => 60 / project.bpm / 4;
 function start(){
+  if (rendering) { toast('正在輸出，等一下再播'); return; }
   ensureAudio(); wakeAudio(); playing = true; step = 0; nextTime = ctx.currentTime + 0.05; uiQueue = [];
   project.tracks.forEach(t => { if (t.type === 'texture') startTexture(t); if (t.type === 'sample') startSample(t); });
   timer = setInterval(tick, 25); requestAnimationFrame(uiLoop);
@@ -668,6 +672,7 @@ function setPlayhead(s){
 (function stepCss(){ let css = ''; for (let i = 0; i < STEPS; i++) css += `.grid[data-now="${i}"] .cell[data-step="${i}"]{outline:2px solid var(--now);outline-offset:-2px}`; const st = document.createElement('style'); st.textContent = css; document.head.appendChild(st); })();
 
 function preview(t, row){
+  if (rendering) return;
   ensureAudio(); ctx.resume(); const c = getChain(t), now = ctx.currentTime + 0.01;
   if (t.type === 'drum') DRUM_FN[DRUMS[row].id](c.input, now, t);
   else if (t.type === 'synth') playNote(c.input, now, t, row, 0.15);
@@ -746,11 +751,11 @@ function renderTracks(){
 function select(id){ sel = id; renderTracks(); renderEditor(); }
 
 /* ---------- 畫面：編輯面板 ---------- */
+let painting = null; window.addEventListener('pointerup', () => { painting = null; }); window.addEventListener('pointercancel', () => { painting = null; });
 function buildGrid(t, rowLabels, rowToIndex, onPreview){
   const wrap = el('div', 'gridwrap'), grid = el('div', 'grid'); grid.dataset.now = -1;
   grid.append(el('div'));
   for (let s = 0; s < STEPS; s++) grid.append(el('div', 'cnt', s % 4 === 0 ? String(s / 4 + 1) : '·'));
-  let painting = null;
   rowLabels.forEach((label, r) => {
     const idx = rowToIndex(r); grid.append(el('div', 'lab', label));
     for (let s = 0; s < STEPS; s++) {
@@ -763,7 +768,6 @@ function buildGrid(t, rowLabels, rowToIndex, onPreview){
       grid.append(c);
     }
   });
-  window.addEventListener('pointerup', () => { painting = null; });
   wrap.append(grid); return wrap;
 }
 function refreshOverview(t){
@@ -877,6 +881,7 @@ function loadFile(t, file){
   if (file.size > 20 * 1024 * 1024) { toast('檔案太大了，請用 20 MB 以內的音檔'); return; }
   const r = new FileReader();
   r.onload = () => { const bytes = r.result; decodeBytes(bytes).then(buf => {
+      if (!alive(t)) { toast('那一軌已經不在了，這段聲音沒有放進去'); return; }
       samples.set(t.id, buf); t.fileName = file.name; t.duration = buf.duration; t.start = 0; if (t.name === TYPE_NAME.sample) t.name = file.name.replace(/\.[^.]+$/, '');
       idb.put(t.id, {bytes, type: file.type, name: file.name});
       save(); restartLive(t); renderTracks(); renderEditor(); toast('已放進「' + t.name + '」這一軌，按 ▶ 播放就會跟其他軌一起響');
@@ -885,6 +890,7 @@ function loadFile(t, file){
 }
 let rec = null;
 function startRecording(t, btn, status){
+  if (rendering) { toast('正在輸出，等一下再錄'); return; }
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) { toast('這個瀏覽器不支援錄音，請用 Chrome 或 Safari 打開網址'); return; }
   ensureAudio(); ctx.resume();
   navigator.mediaDevices.getUserMedia({audio: {echoCancellation: false, noiseSuppression: false, autoGainControl: true}}).then(stream => {
@@ -893,6 +899,7 @@ function startRecording(t, btn, status){
     mr.onstop = () => {
       stream.getTracks().forEach(tr => tr.stop()); clearInterval(rec.timer); const target = rec.t; rec = null;
       const blob = new Blob(chunks, {type: mr.mimeType || 'audio/webm'});
+      if (!alive(target)) { toast('錄音已取消'); return; }
       if (!blob.size) { toast('沒有錄到聲音，再試一次'); renderEditor(); return; }
       wakeAudio();
       const name = '錄音 ' + new Date().toLocaleTimeString('zh-TW', {hour: '2-digit', minute: '2-digit'});
@@ -912,6 +919,7 @@ function drawWave(cv, buf, t){
 
 /* ---------- 鍵盤彈奏 ---------- */
 function noteOn(t, idx){
+  if (rendering) return;
   ensureAudio(); ctx.resume(); const c = getChain(t); playNote(c.input, ctx.currentTime + 0.005, t, idx, 0.2);
   if (playing && t.record && shownStep >= 0) { t.grid[idx][shownStep] = 1; refreshOverview(t); const cell = document.querySelectorAll('.grid .cell')[(7 - idx) * STEPS + shownStep]; if (cell) cell.classList.add('on'); save(); }
 }
@@ -969,17 +977,17 @@ async function shareProject(){
   finally { btn.disabled = false; }
 }
 $('shareGo').addEventListener('click', shareProject);
-const remoteBytes = new Map();
 async function openShared(id){
   const r = await fetch('api/share?id=' + encodeURIComponent(id)); if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.message || ('讀取失敗 ' + r.status)); }
   const data = await r.json(); const p = migrate(data.project); p.id = 'shared_' + id;
-  if (playing) stop(); nodes.clear(); samples.clear(); viewingShare = true; project = p; if (ctx) project.tracks.forEach(getChain);
+  if (playing) stop(); if (rec) stopRecording(); clearTimeout(saveT); persistNow(); nodes.clear(); samples.clear(); remoteBytes.clear(); viewingShare = true; project = p; if (ctx) project.tracks.forEach(getChain);
   sel = p.tracks[0] ? p.tracks[0].id : null; syncTop(); renderTracks(); renderEditor();
   $('sharedName').textContent = p.sharedFrom || p.name; $('sharedBanner').hidden = false; $('hint').hidden = true; $('projBtn').textContent = p.name + ' ▾';
   p.tracks.filter(t => t.type === 'sample' && t.remote).forEach(t => fetch(t.remote).then(x => x.ok ? x.arrayBuffer() : Promise.reject(new Error(x.status))).then(bytes => {
+    if (!alive(t)) return;
     remoteBytes.set(t.id, { bytes, type: 'audio/mpeg', name: t.fileName || t.name });
-    return decodeBytes(bytes).then(buf => { samples.set(t.id, buf); t.duration = buf.duration; if (playing) restartLive(t); renderTracks(); if (sel === t.id) renderEditor(); });
-  }).catch(() => toast('「' + t.name + '」的音檔載入失敗')));
+    return decodeBytes(bytes).then(buf => { if (!alive(t)) return; samples.set(t.id, buf); t.duration = buf.duration; if (playing) restartLive(t); renderTracks(); if (sel === t.id) renderEditor(); });
+  }).catch(() => { if (alive(t)) toast('「' + t.name + '」的音檔載入失敗'); }));
 }
 $('copyShared').addEventListener('click', () => {
   const p = project; viewingShare = false; p.id = uid(); p.name = (p.sharedFrom || p.name) + '（我的版本）'; delete p.sharedFrom;
@@ -992,7 +1000,6 @@ $('modalClose').addEventListener('click', () => { $('modal').hidden = true; });
 $('modal').addEventListener('click', e => { if (e.target === $('modal')) $('modal').hidden = true; });
 $('copyLink').addEventListener('click', () => { const inp = $('shareLink'); const done = () => toast('已複製連結'); const fallback = () => { inp.select(); done(); };
   if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(inp.value).then(done, fallback); else fallback(); });
-let rendering = false;
 function encodeWav(buf){
   const ch = buf.numberOfChannels, len = buf.length, sr = buf.sampleRate, bytes = 44 + len * ch * 2, ab = new ArrayBuffer(bytes), v = new DataView(ab);
   const str = (o, x) => { for (let i = 0; i < x.length; i++) v.setUint8(o + i, x.charCodeAt(i)); };
@@ -1148,7 +1155,7 @@ $('projNew').addEventListener('click', newProject);
 $('projName').addEventListener('input', e => { project.name = e.target.value.trim() || '未命名'; $('projBtn').textContent = project.name + ' ▾'; save(); const row = $('projList').querySelector('.current .proj-open'); if (row) row.textContent = project.name; });
 const resetBtn = $('resetBtn');
 resetBtn.addEventListener('click', () => {
-  if (resetBtn.dataset.arm) { if (playing) stop(); project.tracks.forEach(t => { if (t.type === 'sample') idb.del(t.id); }); nodes.clear(); samples.clear(); const id = project.id, name = project.name; project = defaultProject(); project.id = id; project.name = name; sel = project.tracks[0].id; save(); syncTop(); renderTracks(); renderEditor(); renderLibrary(); delete resetBtn.dataset.arm; resetBtn.textContent = '還原'; toast('已回到一開始的範例'); }
+  if (resetBtn.dataset.arm) { if (playing) stop(); if (rec) stopRecording(); project.tracks.forEach(t => { if (t.type === 'sample') idb.del(t.id); }); nodes.clear(); samples.clear(); const id = project.id, name = project.name; project = defaultProject(); project.id = id; project.name = name; sel = project.tracks[0].id; save(); syncTop(); renderTracks(); renderEditor(); renderLibrary(); delete resetBtn.dataset.arm; resetBtn.textContent = '還原'; toast('已回到一開始的範例'); }
   else { resetBtn.dataset.arm = '1'; resetBtn.textContent = '確定還原？再按一次'; setTimeout(() => { delete resetBtn.dataset.arm; resetBtn.textContent = '還原'; }, 3000); }
 });
 function syncTop(){ $('bpm').value = project.bpm; $('bpmVal').textContent = project.bpm; $('master').value = Math.round(project.master.volume * 100); }

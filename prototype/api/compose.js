@@ -1,6 +1,6 @@
 // AI 幫我編曲：文字描述 → Mixmusic 專案規格（JSON）。用 Claude 結構化輸出，前端再轉成軌道。
 import Anthropic from '@anthropic-ai/sdk';
-import { readJson, userKey, clamp } from './_shared.js';
+import { readJson, userKey, clamp, sameOrigin } from './_shared.js';
 
 export const config = { maxDuration: 60 };
 
@@ -88,7 +88,9 @@ export default async function handler(req, res){
   const body = readJson(req);
   const prompt = String(body.prompt || '').trim().slice(0, 500);
   if (!prompt) return res.status(400).json({ error: 'empty', message: '先描述一下你想要的聲音' });
-  const apiKey = userKey(req, 'x-user-key') || process.env.ANTHROPIC_API_KEY || '';
+  const own = userKey(req, 'x-user-key');
+  if (!own && !sameOrigin(req)) return res.status(403).json({ error: 'forbidden', message: '只能從 Mixmusic 網站使用' });
+  const apiKey = own || process.env.ANTHROPIC_API_KEY || '';
   if (!apiKey) return res.status(503).json({ error: 'no_key', message: '還沒設定 AI 編曲的金鑰。請在「AI 設定」貼上你的 Anthropic API 金鑰，或由網站管理員在伺服器設定 ANTHROPIC_API_KEY。' });
   const client = new Anthropic({ apiKey, maxRetries: 1, timeout: 50_000 });
   try {
@@ -103,7 +105,8 @@ export default async function handler(req, res){
     });
     if (response.stop_reason === 'refusal') return res.status(422).json({ error: 'refused', message: '這個描述 AI 不能處理，換個說法再試一次' });
     const text = (response.content.find(b => b.type === 'text') || {}).text || '';
-    let spec; try { spec = JSON.parse(text); } catch (e) { return res.status(502).json({ error: 'bad_json', message: 'AI 回了看不懂的東西，再試一次' }); }
+    let spec; try { spec = JSON.parse(text); } catch (e) { spec = null; }
+    if (!spec || typeof spec !== 'object' || Array.isArray(spec)) return res.status(502).json({ error: 'bad_json', message: 'AI 回了看不懂的東西，再試一次' });
     return res.status(200).json({ spec: sanitize(spec), usage: { input: response.usage.input_tokens, output: response.usage.output_tokens } });
   } catch (e) {
     const status = e && e.status;
