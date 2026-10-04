@@ -155,6 +155,8 @@ canvas.wave{width:100%;height:80px;display:block;background:var(--surface-2);bor
 .proj-when{font-size:12px;color:var(--muted);white-space:nowrap}
 .proj-del{font-size:12px;min-height:32px;padding:4px 10px;color:#c43d2b}
 .modal.ai{max-width:560px}
+.howto{margin:0;padding-left:22px;display:flex;flex-direction:column;gap:6px;font-size:15px}
+#undoBtn[disabled]{opacity:.45;cursor:default}
 .tabs{display:flex;gap:6px;border-bottom:1px solid var(--line);padding-bottom:8px}
 .tab{border-radius:999px;min-height:36px;padding:6px 14px;font-size:14px}
 .tab.active{background:var(--fg);color:var(--bg);border-color:var(--fg)}
@@ -172,7 +174,13 @@ canvas.wave{width:100%;height:80px;display:block;background:var(--surface-2);bor
   .track{grid-template-columns:1fr;gap:8px}
   .t-mix{order:3}
   .ctl{min-width:140px}
-  .actions{margin-left:0;width:100%}
+  .ctl.master{display:none}
+  .topbar{gap:8px 12px;padding:10px 12px}
+  .brand{font-size:17px}
+  .play{padding:8px 16px;min-width:0;font-size:15px}
+  .actions{margin-left:0;width:100%;flex-wrap:nowrap;overflow-x:auto;padding-bottom:2px;scrollbar-width:none}
+  .actions::-webkit-scrollbar{display:none}
+  .actions button{flex:0 0 auto;white-space:nowrap}
   .grid{grid-template-columns:40px repeat(16,28px);min-width:0}
   .keys button{font-size:13px;min-height:50px}
   .fab{display:flex;position:fixed;right:16px;bottom:calc(16px + env(safe-area-inset-bottom,0px));width:64px;height:64px;border-radius:50%;background:var(--accent);color:var(--accent-fg);font-size:26px;font-weight:700;align-items:center;justify-content:center;box-shadow:0 6px 20px rgba(20,30,45,.3);z-index:15;border:0;padding:0}
@@ -190,19 +198,21 @@ canvas.wave{width:100%;height:80px;display:block;background:var(--surface-2);bor
     <button id="projBtn" class="proj" title="我的作品">作品 ▾</button>
     <button id="playBtn" class="play" aria-label="播放">▶ 播放</button>
     <label class="ctl" for="bpm">速度 <input type="range" id="bpm" min="60" max="180" step="1" value="110"> <span class="val mono" id="bpmVal">110</span></label>
-    <label class="ctl" for="master">總音量 <input type="range" id="master" min="0" max="100" step="1" value="80"></label>
+    <label class="ctl master" for="master">總音量 <input type="range" id="master" min="0" max="100" step="1" value="80"></label>
     <div class="actions">
+      <button id="undoBtn" title="復原上一步（Ctrl+Z）" disabled>↶ 復原</button>
       <button id="aiBtn">✨ AI</button>
       <button id="shareBtn">分享</button>
       <button id="exportBtn">匯出 WAV</button>
       <button id="resetBtn">還原</button>
       <button id="installBtn" hidden>安裝到裝置</button>
+      <button id="helpBtn" title="怎麼玩">？</button>
     </div>
   </header>
 
   <div id="sharedBanner" class="hint shared" hidden><span>這是別人分享的作品「<b id="sharedName"></b>」。可以聽、可以亂調，但不會存。</span><button id="copyShared" class="primary">複製一份來改</button></div>
   <div id="iosHint" class="hint" hidden><span>想把 Mixmusic 裝到桌面：按 Safari 下方的 <b>分享</b> 圖示，再選 <b>加入主畫面</b>。之後離線也能玩。</span><button id="iosHintClose">知道了</button></div>
-  <div id="hint" class="hint"><span>先按 <b>▶ 播放</b> 聽聽看，再點任何一軌、改任何一個格子或滑桿。怎麼亂調都不會壞。想換個風格，按上面的「作品」從範例開始。<br>用 iPhone 的話，記得把側邊的靜音開關關掉、音量調大。</span><button id="hintClose">知道了</button></div>
+  <div id="hint" class="hint"><span>先按 <b>▶ 播放</b> 聽聽看，再點任何一軌、改任何一個格子或滑桿。按錯了按「復原」，怎麼亂調都不會壞。想換個風格，按「作品」從範例開始；不懂就按「？」。<br>用 iPhone 的話，記得把側邊的靜音開關關掉、音量調大。</span><button id="hintClose">知道了</button></div>
 
   <section id="tracks" class="tracks" aria-label="軌道列表"></section>
 
@@ -222,6 +232,22 @@ canvas.wave{width:100%;height:80px;display:block;background:var(--surface-2);bor
   <div id="offline" class="hint" hidden><span>目前離線中。App 和你存的東西都還能用，分享和上傳要等連上網路。</span></div>
   <button id="fab" class="fab" aria-label="播放">▶</button>
   <div id="toast" class="toast" hidden></div>
+  <div id="helpModal" class="backdrop" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
+      <h2 id="helpTitle">怎麼玩</h2>
+      <ol class="howto">
+        <li>按 <b>▶ 播放</b>，先聽到聲音。</li>
+        <li>點任何一軌，下面會出現它的調整面板。</li>
+        <li>點格子，亮起來那一格就會響；拉滑桿，馬上聽到變化。</li>
+        <li><b>＋ 新增軌道</b>：合成器彈旋律、鼓打節奏、環境音、錄真實的聲音、上傳音檔。</li>
+        <li><b>作品</b>：存很多首、取名字，或從範例開始。</li>
+        <li><b>分享</b> 給朋友聽；<b>匯出 WAV</b> 存到電腦。</li>
+        <li>按錯了按 <b>↶ 復原</b>；整首重來按 <b>還原</b>。</li>
+      </ol>
+      <p class="note" style="margin:0">電腦快捷鍵：空白鍵 播放／停止，A S D F G H J K 彈琴，Ctrl+Z 復原。</p>
+      <div style="display:flex;justify-content:flex-end"><button id="helpClose">知道了</button></div>
+    </div>
+  </div>
   <div id="aiModal" class="backdrop" hidden>
     <div class="modal ai" role="dialog" aria-modal="true" aria-labelledby="aiTitle">
       <h2 id="aiTitle">✨ 讓 AI 幫忙</h2>
@@ -302,12 +328,18 @@ const PATTERNS = {
   '電子舞曲':   {kick:[0,4,8,12], snare:[], hat:[2,6,10,14], clap:[4,12], tom:[], shaker:[1,3,5,7,9,11,13,15]},
   '慢板':       {kick:[0,10], snare:[8], hat:[4,12], clap:[], tom:[13,14], shaker:[]},
   '拉丁':       {kick:[0,6,8,14], snare:[], hat:[], clap:[4,12], tom:[2,10,11], shaker:[0,2,4,6,8,10,12,14]},
+  '搖滾':       {kick:[0,8,10], snare:[4,12], hat:[0,2,4,6,8,10,12,14], clap:[], tom:[14,15], shaker:[]},
+  '雷鬼':       {kick:[8], snare:[8], hat:[2,6,10,14], clap:[], tom:[], shaker:[0,4,8,12]},
+  '進行曲':     {kick:[0,4,8,12], snare:[2,6,10,13,14,15], hat:[], clap:[], tom:[], shaker:[]},
 };
 const SYNTH_PRESETS = {
   '溫暖貝斯': {shape:'triangle', pitch:-12, brightness:0.35, attack:0.03, release:0.25, vibrato:0},
   '亮鈴聲':   {shape:'sine',     pitch:12,  brightness:0.9,  attack:0.01, release:0.7,  vibrato:0.15},
   '復古電玩': {shape:'square',   pitch:0,   brightness:0.7,  attack:0.01, release:0.1,  vibrato:0},
   '夢幻合成': {shape:'sawtooth', pitch:0,   brightness:0.4,  attack:0.5,  release:0.9,  vibrato:0.4},
+  '溫柔鋼琴': {shape:'sine',     pitch:0,   brightness:0.6,  attack:0.02, release:0.7,  vibrato:0},
+  '厚實合成': {shape:'sawtooth', pitch:-12, brightness:0.45, attack:0.15, release:0.5,  vibrato:0.2},
+  '清脆撥弦': {shape:'triangle', pitch:12,  brightness:0.85, attack:0.005,release:0.15, vibrato:0},
 };
 const R = () => Math.random();
 /* 每種環境音 = 一層底噪（noise/filter/gain/rate）＋ 可選的隨機事件（event 發一次聲、gap 回傳下一次要隔多久） */
@@ -417,19 +449,33 @@ function migrate(p){
 }
 function openProject(id){
   let p = lsGet(PKEY(id)); if (!(p && Array.isArray(p.tracks))) { p = defaultProject(); }
-  project = migrate(p); project.id = id; lib.current = id; writeLib();
+  project = migrate(p); project.id = id; lib.current = id; writeLib(); resetHistory();
 }
 function load(){
   const saved = lsGet(LIST_KEY); if (saved && Array.isArray(saved.list)) lib = saved;
   if (!lib.list.length) {
     let p = lsGet(SAVE_KEY); if (!(p && p.version === 1 && Array.isArray(p.tracks))) p = defaultProject();
-    p.id = p.id || uid(); project = migrate(p); lib.list = [{id: p.id, name: p.name, updated: Date.now()}]; lib.current = p.id; persistNow(); return;
+    p.id = p.id || uid(); project = migrate(p); lib.list = [{id: p.id, name: p.name, updated: Date.now()}]; lib.current = p.id; resetHistory(); persistNow(); return;
   }
   openProject(lib.list.some(x => x.id === lib.current) ? lib.current : lib.list[0].id);
 }
 let saveT = null;
 let viewingShare = false; const remoteBytes = new Map();
-function persistNow(){ if (viewingShare) return; lsSet(PKEY(project.id), project); const e = lib.list.find(x => x.id === project.id); if (e) { e.name = project.name; e.updated = Date.now(); } writeLib(); }
+const undoStack = []; let lastJson = '';
+function markHistory(){ const json = JSON.stringify(project); if (lastJson && json !== lastJson) { undoStack.push(lastJson); if (undoStack.length > 40) undoStack.shift(); } lastJson = json; updateUndoBtn(); }
+function updateUndoBtn(){ const b = $('undoBtn'); if (b) b.disabled = !undoStack.length || viewingShare; }
+function resetHistory(){ undoStack.length = 0; lastJson = JSON.stringify(project); updateUndoBtn(); }
+function undo(){
+  if (viewingShare) { toast('分享的作品不能復原，先「複製一份來改」'); return; }
+  if (!undoStack.length) { toast('沒有可以復原的了'); return; }
+  const wasPlaying = playing; if (playing) stop(); if (rec) stopRecording(); clearTimeout(saveT);
+  const json = undoStack.pop(); const p = migrate(JSON.parse(json)); p.id = project.id; project = p; lastJson = json;
+  nodes.clear(); if (ctx) project.tracks.forEach(getChain);
+  if (!track(sel)) sel = project.tracks[0] ? project.tracks[0].id : null;
+  lsSet(PKEY(project.id), project); const e = lib.list.find(x => x.id === project.id); if (e) e.name = project.name; writeLib();
+  syncTop(); renderTracks(); renderEditor(); renderLibrary(); restoreFiles(); updateUndoBtn(); toast('已復原上一步'); if (wasPlaying) start();
+}
+function persistNow(){ if (viewingShare) return; markHistory(); lsSet(PKEY(project.id), project); const e = lib.list.find(x => x.id === project.id); if (e) { e.name = project.name; e.updated = Date.now(); } writeLib(); }
 function save(){ clearTimeout(saveT); saveT = setTimeout(persistNow, 300); }
 const alive = (t) => project.tracks.includes(t);
 function leaveShared(){ viewingShare = false; remoteBytes.clear(); $('sharedBanner').hidden = true; try { if (location.search) history.replaceState(null, '', location.pathname); } catch (e) {} }
@@ -593,7 +639,7 @@ function startTexture(t){
     const buf = realBufs.get(def.file);
     if (!buf) {
       c.live = {kind: 'texture', pending: true};
-      loadReal(def.file).then(() => { if (c.live && c.live.pending) { c.live = null; if (playing && TEXTURES[t.preset] === def) startTexture(t); } })
+      loadReal(def.file).then(() => { if (c.live && c.live.pending) { c.live = null; if (playing && TEXTURES[t.preset] === def) startTexture(t); } if (alive(t)) renderTracks(); })
         .catch(() => { if (c.live && c.live.pending) c.live = null; if (alive(t)) toast('「' + def.label + '」載入失敗，確認網路後再按一次播放'); });
       return;
     }
@@ -730,7 +776,8 @@ function renderTracks(){
       for (let s = 0; s < STEPS; s++) { const c = el('div', 'cell' + (s % 4 === 0 ? ' beat' : '') + (t.grid.some(r => r[s]) ? ' on' : '')); c.dataset.step = s; ov.append(c); }
     } else {
       ov = el('div', 'ov-text'); const w = el('span', 'waves'); for (let i = 0; i < 5; i++) w.append(el('i'));
-      ov.append(w, el('span', null, t.type === 'texture' ? texLabel(t.preset) + '，一直持續' : (t.fileName ? t.fileName : '還沒有檔案，點這一軌上傳')));
+      const def = t.type === 'texture' ? TEXTURES[t.preset] : null; const loading = def && def.file && !realBufs.has(def.file) && playing;
+      ov.append(w, el('span', null, t.type === 'texture' ? texLabel(t.preset) + (loading ? '，載入中…' : '，一直持續') : (t.fileName ? t.fileName : '還沒有檔案，點這一軌上傳')));
     }
     const mix = el('div', 't-mix');
     const vol = slider(t, 'volume', '音量', t.mixer.volume, 0, 1, 0.01, v => { t.mixer.volume = v; applyMixer(t); });
@@ -930,6 +977,9 @@ document.addEventListener('keydown', e => {
     const b = document.querySelector('.keys button[data-idx="' + i + '"]'); if (b) { b.classList.add('down'); setTimeout(() => b.classList.remove('down'), 150); } }
   if (e.key === ' ' && tag !== 'button') { e.preventDefault(); togglePlay(); }
 });
+document.addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z') { const tag = (e.target.tagName || '').toLowerCase(); if (tag === 'input' || tag === 'textarea') return; e.preventDefault(); undo(); }
+});
 
 /* ---------- 其他操作 ---------- */
 function togglePlay(){ playing ? stop() : start(); }
@@ -1093,6 +1143,10 @@ function showTab(name){
 $('tabCompose').addEventListener('click', () => showTab('Compose')); $('tabMusic').addEventListener('click', () => showTab('Music')); $('tabKeys').addEventListener('click', () => showTab('Keys'));
 $('aiBtn').addEventListener('click', () => { $('aiModal').hidden = false; if (!aiAvailable()) toast('AI 功能要在正式網址 mixmusic.vercel.app 上才能用'); });
 $('aiClose').addEventListener('click', () => { $('aiModal').hidden = true; });
+$('undoBtn').addEventListener('click', undo);
+$('helpBtn').addEventListener('click', () => { $('helpModal').hidden = false; });
+$('helpClose').addEventListener('click', () => { $('helpModal').hidden = true; });
+$('helpModal').addEventListener('click', e => { if (e.target === $('helpModal')) $('helpModal').hidden = true; });
 $('aiModal').addEventListener('click', e => { if (e.target === $('aiModal')) $('aiModal').hidden = true; });
 $('composeExamples').querySelectorAll('button').forEach(b => b.addEventListener('click', () => { $('composePrompt').value = b.textContent; $('composePrompt').focus(); }));
 $('musicSeconds').addEventListener('input', e => { $('musicSecondsVal').textContent = e.target.value; });
