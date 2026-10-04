@@ -110,6 +110,23 @@ input[type=range]{accent-color:var(--accent);width:100%;height:28px;margin:0}
 .sl{display:flex;flex-direction:column;gap:2px;background:var(--surface-2);border-radius:10px;padding:8px 12px}
 .sl-top{display:flex;justify-content:space-between;font-size:14px}
 .sl-desc{color:var(--muted)}
+.gridbox{display:flex;flex-direction:column;gap:8px}
+.gridhead{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}
+.bartabs{display:flex;gap:6px}
+.bartab{min-height:32px;padding:4px 12px;font-size:13px;border-radius:999px;position:relative}
+.bartab.active{background:var(--tc);border-color:var(--tc);color:#fff;font-weight:700}
+.bartab.has::after{content:'';position:absolute;top:4px;right:6px;width:6px;height:6px;border-radius:50%;background:currentColor;opacity:.6}
+button.tiny{min-height:32px;padding:4px 10px;font-size:13px}
+.toggle.tiny{font-size:13px;color:var(--muted)}
+.grid.paint .cell{touch-action:none}
+.ov.dense{gap:1px}
+.ov.dense .cell{border-radius:2px;height:18px}
+.ov .cell.bar{box-shadow:-2px 0 0 0 var(--muted)}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.seg button{border:0;border-radius:0;min-height:36px;padding:4px 10px;font-size:13px;border-right:1px solid var(--line)}
+.seg button:last-child{border-right:0}
+.seg button.active{background:var(--fg);color:var(--bg)}
+.ctl.bars{flex:0 0 auto;min-width:0}
 .gridwrap{overflow-x:auto}
 .grid{display:grid;grid-template-columns:52px repeat(16,minmax(22px,1fr));gap:4px;min-width:460px}
 .grid .lab{font-size:12px;color:var(--muted);display:flex;align-items:center;justify-content:flex-end;padding-right:6px;white-space:nowrap}
@@ -198,6 +215,7 @@ canvas.wave{width:100%;height:80px;display:block;background:var(--surface-2);bor
     <button id="projBtn" class="proj" title="我的作品">作品 ▾</button>
     <button id="playBtn" class="play" aria-label="播放">▶ 播放</button>
     <label class="ctl" for="bpm">速度 <input type="range" id="bpm" min="60" max="180" step="1" value="110"> <span class="val mono" id="bpmVal">110</span></label>
+    <div class="ctl bars" role="group" aria-label="小節數">長度 <div class="seg"><button type="button" data-bars="1">1 小節</button><button type="button" data-bars="2">2</button><button type="button" data-bars="4">4</button></div></div>
     <label class="ctl master" for="master">總音量 <input type="range" id="master" min="0" max="100" step="1" value="80"></label>
     <div class="actions">
       <button id="undoBtn" title="復原上一步（Ctrl+Z）" disabled>↶ 復原</button>
@@ -412,8 +430,18 @@ const $ = (id) => document.getElementById(id);
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 
 function defaultMixer(){ return {volume:0.8, pan:0, low:0, high:0, reverb:0, delay:0, distortion:0, mute:false, solo:false}; }
-function emptyGrid(rows){ return Array.from({length:rows}, () => Array(STEPS).fill(0)); }
-function patternGrid(name){ const p = PATTERNS[name]; return DRUMS.map(d => { const row = Array(STEPS).fill(0); (p[d.id]||[]).forEach(s => row[s] = 1); return row; }); }
+const BARS_OK = [1, 2, 4];
+const totalSteps = () => STEPS * ((project && BARS_OK.includes(project.bars)) ? project.bars : 1);
+function fitRow(row, total){ const src = Array.isArray(row) && row.length ? row : Array(STEPS).fill(0); const base = src.length >= STEPS ? src.slice(0, STEPS) : src.concat(Array(STEPS - src.length).fill(0)); const out = Array(total).fill(0); for (let i = 0; i < total; i++) out[i] = i < src.length ? (src[i] ? 1 : 0) : (base[i % STEPS] ? 1 : 0); return out; }
+function emptyGrid(rows){ return Array.from({length:rows}, () => Array(totalSteps()).fill(0)); }
+function patternGrid(name){ const p = PATTERNS[name]; return DRUMS.map(d => { const row = Array(STEPS).fill(0); (p[d.id]||[]).forEach(s => row[s] = 1); return fitRow(row, totalSteps()); }); }
+let viewBar = 0;
+function setBars(n){
+  if (!BARS_OK.includes(n) || n === project.bars) return;
+  project.bars = n; const total = totalSteps();
+  project.tracks.forEach(t => { if (t.grid) t.grid = t.grid.map(r => fitRow(r, total)); });
+  viewBar = Math.min(viewBar, n - 1); step = step % total; save(); syncTop(); renderTracks(); renderEditor();
+}
 function nextColor(){ const used = project.tracks.map(t => t.color); return COLORS.find(c => !used.includes(c)) || COLORS[project.tracks.length % COLORS.length]; }
 
 function makeTrack(type){
@@ -425,7 +453,7 @@ function makeTrack(type){
 }
 function defaultProject(){
   const prev = project;
-  project = {version:1, name:'我的第一首', bpm:110, master:{volume:0.8}, tracks:[]};
+  project = {version:1, name:'我的第一首', bpm:110, bars:1, master:{volume:0.8}, tracks:[]};
   const drum = makeTrack('drum'); drum.name = '鼓'; project.tracks.push(drum);
   const bass = makeTrack('synth'); bass.name = '貝斯'; bass.sound = {...SYNTH_PRESETS['溫暖貝斯']}; bass.mixer.volume = 0.7; project.tracks.push(bass);
   [[0,0],[0,4],[2,6],[3,8],[2,12],[4,14]].forEach(([p,s]) => bass.grid[p][s] = 1);
@@ -434,15 +462,17 @@ function defaultProject(){
 }
 
 /* ---------- 狀態 ---------- */
-let project = null, sel = null;
+let project = null, sel = null, step = 0;
 const SAVE_KEY = 'mixmusic.prototype.v1', LIST_KEY = 'mixmusic.projects.v1', PKEY = (id) => 'mixmusic.project.' + id;
 let lib = {list: [], current: null};
 const lsGet = (k) => { try { const raw = localStorage.getItem(k); return raw ? JSON.parse(raw) : null; } catch (e) { return null; } };
 const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} };
 function writeLib(){ lsSet(LIST_KEY, lib); }
 function migrate(p){
+  if (!BARS_OK.includes(p.bars)) p.bars = 1;
   p.tracks.forEach(t => {
     if (t.type === 'drum') { while (t.grid.length < DRUMS.length) t.grid.push(Array(STEPS).fill(0)); DRUMS.forEach(d => { if (t.levels[d.id] == null) t.levels[d.id] = DRUM_DEFAULTS[d.id]; }); }
+    if (t.grid) { const total = STEPS * (BARS_OK.includes(p.bars) ? p.bars : 1); t.grid = t.grid.map(r => fitRow(r, total)); }
     if (t.type === 'texture' && !TEXTURES[t.preset]) t.preset = '雨聲';
   });
   return p;
@@ -691,7 +721,7 @@ function wakeAudio(){
 document.addEventListener('visibilitychange', () => { if (!document.hidden && ctx && playing) wakeAudio(); });
 
 /* ---------- 播放排程 ---------- */
-let playing = false, step = 0, nextTime = 0, timer = null, uiQueue = [], shownStep = -1;
+let playing = false, nextTime = 0, timer = null, uiQueue = [], shownStep = -1;
 const stepDur = () => 60 / project.bpm / 4;
 function start(){
   if (rendering) { toast('正在輸出，等一下再播'); return; }
@@ -701,7 +731,7 @@ function start(){
   $('playBtn').textContent = '■ 停止'; $('fab').textContent = '■'; document.body.classList.add('playing'); hideHint();
 }
 function stop(){ playing = false; clearInterval(timer); project.tracks.forEach(stopLive); setPlayhead(-1); $('playBtn').textContent = '▶ 播放'; $('fab').textContent = '▶'; document.body.classList.remove('playing'); }
-function tick(){ while (nextTime < ctx.currentTime + 0.15) { scheduleStep(step, nextTime); uiQueue.push({step, time: nextTime}); nextTime += stepDur(); step = (step + 1) % STEPS; } }
+function tick(){ while (nextTime < ctx.currentTime + 0.15) { scheduleStep(step, nextTime); uiQueue.push({step, time: nextTime}); nextTime += stepDur(); step = (step + 1) % totalSteps(); } }
 function scheduleStep(s, time){
   for (const t of project.tracks) {
     const c = getChain(t); if (!c) continue;
@@ -715,7 +745,7 @@ function setPlayhead(s){
   const grid = document.querySelector('.grid'); if (grid) grid.dataset.now = s;
   if (s >= 0) document.querySelectorAll('.ov .cell[data-step="' + s + '"]').forEach(c => c.classList.add('now'));
 }
-(function stepCss(){ let css = ''; for (let i = 0; i < STEPS; i++) css += `.grid[data-now="${i}"] .cell[data-step="${i}"]{outline:2px solid var(--now);outline-offset:-2px}`; const st = document.createElement('style'); st.textContent = css; document.head.appendChild(st); })();
+(function stepCss(){ let css = ''; for (let i = 0; i < STEPS * 4; i++) css += `.grid[data-now="${i}"] .cell[data-step="${i}"]{outline:2px solid var(--now);outline-offset:-2px}`; const st = document.createElement('style'); st.textContent = css; document.head.appendChild(st); })();
 
 function preview(t, row){
   if (rendering) return;
@@ -773,7 +803,8 @@ function renderTracks(){
     let ov;
     if (t.type === 'drum' || t.type === 'synth') {
       ov = el('div', 'ov');
-      for (let s = 0; s < STEPS; s++) { const c = el('div', 'cell' + (s % 4 === 0 ? ' beat' : '') + (t.grid.some(r => r[s]) ? ' on' : '')); c.dataset.step = s; ov.append(c); }
+      const total = totalSteps(); ov.style.gridTemplateColumns = 'repeat(' + total + ',minmax(0,1fr))'; if (total > 16) ov.classList.add('dense');
+      for (let s = 0; s < total; s++) { const c = el('div', 'cell' + (s % 4 === 0 ? ' beat' : '') + (s % 16 === 0 && s ? ' bar' : '') + (t.grid.some(r => r[s]) ? ' on' : '')); c.dataset.step = s; ov.append(c); }
     } else {
       ov = el('div', 'ov-text'); const w = el('span', 'waves'); for (let i = 0; i < 5; i++) w.append(el('i'));
       const def = t.type === 'texture' ? TEXTURES[t.preset] : null; const loading = def && def.file && !realBufs.has(def.file) && playing;
@@ -799,27 +830,53 @@ function select(id){ sel = id; renderTracks(); renderEditor(); }
 
 /* ---------- 畫面：編輯面板 ---------- */
 let painting = null; window.addEventListener('pointerup', () => { painting = null; }); window.addEventListener('pointercancel', () => { painting = null; });
+const coarse = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+let paintMode = false; try { paintMode = localStorage.getItem('mixmusic.paint') === '1'; } catch (e) {}
 function buildGrid(t, rowLabels, rowToIndex, onPreview){
-  const wrap = el('div', 'gridwrap'), grid = el('div', 'grid'); grid.dataset.now = -1;
+  const box = el('div', 'gridbox'), bars = project.bars || 1; if (viewBar >= bars) viewBar = 0;
+  const head = el('div', 'gridhead');
+  if (bars > 1) {
+    const tabs = el('div', 'bartabs');
+    for (let b = 0; b < bars; b++) { const bt = el('button', 'bartab' + (b === viewBar ? ' active' : ''), '第 ' + (b + 1) + ' 小節'); bt.type = 'button'; bt.dataset.bar = b; bt.addEventListener('click', () => { viewBar = b; renderEditor(); }); tabs.append(bt); }
+    const cp = el('button', 'tiny', '把第 1 小節複製過來'); cp.type = 'button'; cp.hidden = viewBar === 0;
+    cp.addEventListener('click', () => { t.grid.forEach(r => { for (let i = 0; i < STEPS; i++) r[viewBar * STEPS + i] = r[i]; }); save(); renderTracks(); renderEditor(); toast('已複製第 1 小節到第 ' + (viewBar + 1) + ' 小節'); });
+    head.append(tabs, cp);
+  }
+  if (coarse) {
+    const tog = el('label', 'toggle tiny'); const cb = el('input'); cb.type = 'checkbox'; cb.id = 'paint_' + t.id; cb.checked = paintMode;
+    cb.addEventListener('change', () => { paintMode = cb.checked; try { localStorage.setItem('mixmusic.paint', paintMode ? '1' : '0'); } catch (e) {} grid.classList.toggle('paint', paintMode); });
+    tog.append(cb, el('span', null, '✏️ 拖曳畫格子（開了就不能在格子上捲動）')); head.append(tog);
+  }
+  if (head.childNodes.length) box.append(head);
+  const wrap = el('div', 'gridwrap'), grid = el('div', 'grid' + (coarse && paintMode ? ' paint' : '')); grid.dataset.now = -1;
+  const from = viewBar * STEPS;
   grid.append(el('div'));
-  for (let s = 0; s < STEPS; s++) grid.append(el('div', 'cnt', s % 4 === 0 ? String(s / 4 + 1) : '·'));
+  for (let i = 0; i < STEPS; i++) grid.append(el('div', 'cnt', i % 4 === 0 ? String(i / 4 + 1) : '·'));
+  const cells = new Map();
+  const setCell = (idx, s, v, c) => { if (t.grid[idx][s] === v) return; t.grid[idx][s] = v; c.classList.toggle('on', !!v); };
   rowLabels.forEach((label, r) => {
     const idx = rowToIndex(r); grid.append(el('div', 'lab', label));
-    for (let s = 0; s < STEPS; s++) {
-      const c = el('button', 'cell' + (s % 4 === 0 ? ' beat' : '') + (t.grid[idx][s] ? ' on' : '')); c.type = 'button'; c.dataset.step = s;
-      c.setAttribute('aria-label', label + ' 第 ' + (s + 1) + ' 格');
-      const set = (v) => { t.grid[idx][s] = v; c.classList.toggle('on', !!v); };
-      c.addEventListener('pointerdown', e => { e.preventDefault(); const v = t.grid[idx][s] ? 0 : 1; set(v); painting = v; if (v) onPreview(idx); save(); refreshOverview(t); });
-      c.addEventListener('pointerenter', () => { if (painting !== null) { set(painting); save(); refreshOverview(t); } });
-      c.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); set(t.grid[idx][s] ? 0 : 1); save(); refreshOverview(t); } });
+    for (let i = 0; i < STEPS; i++) {
+      const s = from + i;
+      const c = el('button', 'cell' + (i % 4 === 0 ? ' beat' : '') + (t.grid[idx][s] ? ' on' : '')); c.type = 'button'; c.dataset.step = s; c.dataset.r = idx;
+      c.setAttribute('aria-label', label + ' 第 ' + (i + 1) + ' 格'); cells.set(c, [idx, s]);
+      c.addEventListener('pointerdown', e => { e.preventDefault(); const v = t.grid[idx][s] ? 0 : 1; setCell(idx, s, v, c); painting = v; if (v) onPreview(idx); save(); refreshOverview(t); });
+      c.addEventListener('pointerenter', e => { if (painting !== null && e.pointerType !== 'touch') { setCell(idx, s, painting, c); save(); refreshOverview(t); } });
+      c.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setCell(idx, s, t.grid[idx][s] ? 0 : 1, c); save(); refreshOverview(t); } });
       grid.append(c);
     }
   });
-  wrap.append(grid); return wrap;
+  grid.addEventListener('pointermove', e => {
+    if (painting === null || e.pointerType !== 'touch' || !paintMode) return;
+    const target = document.elementFromPoint(e.clientX, e.clientY); const hit = target && cells.get(target); if (!hit) return;
+    const [idx, s] = hit; if (t.grid[idx][s] !== painting) { setCell(idx, s, painting, target); save(); refreshOverview(t); }
+  });
+  wrap.append(grid); box.append(wrap); return box;
 }
 function refreshOverview(t){
   const rows = [...document.querySelectorAll('.track')]; const i = project.tracks.indexOf(t); const row = rows[i]; if (!row) return;
   row.querySelectorAll('.ov .cell').forEach((c, s) => c.classList.toggle('on', t.grid.some(r => r[s])));
+  document.querySelectorAll('.bartab').forEach(b => b.classList.toggle('has', t.grid.some(r => r.slice(+b.dataset.bar * STEPS, +b.dataset.bar * STEPS + STEPS).some(Boolean))));
 }
 function section(title, sub){ const s = el('div', 'sec'); const h = el('div', 'sec-title', title); if (sub) h.append(el('small', null, sub)); s.append(h); return s; }
 function mixerSection(t){
@@ -968,7 +1025,7 @@ function drawWave(cv, buf, t){
 function noteOn(t, idx){
   if (rendering) return;
   ensureAudio(); ctx.resume(); const c = getChain(t); playNote(c.input, ctx.currentTime + 0.005, t, idx, 0.2);
-  if (playing && t.record && shownStep >= 0) { t.grid[idx][shownStep] = 1; refreshOverview(t); const cell = document.querySelectorAll('.grid .cell')[(7 - idx) * STEPS + shownStep]; if (cell) cell.classList.add('on'); save(); }
+  if (playing && t.record && shownStep >= 0) { t.grid[idx][shownStep] = 1; refreshOverview(t); const cell = document.querySelector('.grid .cell[data-r="' + idx + '"][data-step="' + shownStep + '"]'); if (cell) cell.classList.add('on'); save(); }
 }
 document.addEventListener('keydown', e => {
   if (e.repeat || e.metaKey || e.ctrlKey || e.altKey) return; const tag = (e.target.tagName || '').toLowerCase(); if (tag === 'input' || tag === 'textarea') return;
@@ -1064,14 +1121,14 @@ async function exportWav(){
   const OC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
   if (!OC) { toast('這個瀏覽器不支援輸出'); rendering = false; return; }
   if (playing) stop();
-  const loops = 4, sr = 44100, dur = stepDur() * STEPS * loops + 1.5;
+  const total = totalSteps(), loops = Math.max(1, Math.round(4 / project.bars)), sr = 44100, dur = stepDur() * total * loops + 1.5;
   const saved = {ctx, master, reverbNode, delayNode, nodes: new Map(nodes), noise: Object.assign({}, noiseBuf)};
   try {
     toast('正在輸出 ' + loops + ' 小節，請稍等…');
     await Promise.all(project.tracks.filter(t => t.type === 'texture' && TEXTURES[t.preset] && TEXTURES[t.preset].file).map(t => loadReal(TEXTURES[t.preset].file)));
     ctx = new OC(2, Math.ceil(sr * dur), sr); nodes.clear(); buildGraph();
     project.tracks.forEach(t => { if (t.type === 'texture') startTexture(t); if (t.type === 'sample') startSample(t); });
-    for (let i = 0; i < STEPS * loops; i++) scheduleStep(i % STEPS, 0.02 + i * stepDur());
+    for (let i = 0; i < total * loops; i++) scheduleStep(i % total, 0.02 + i * stepDur());
     const out = await ctx.startRendering();
     const url = URL.createObjectURL(encodeWav(out)); const a = document.createElement('a'); a.href = url; a.download = (project.name || 'mixmusic') + '.wav'; document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 30000);
@@ -1162,7 +1219,7 @@ function specToProject(spec, prompt){
   const prevProject = project; project = p;
   if (spec.drum && spec.drum.enabled) {
     const t = makeTrack('drum'); t.name = '鼓'; t.tune = spec.drum.tune; t.decay = spec.drum.decay; t.mixer = mix({ volume: spec.drum.volume, reverb: spec.drum.reverb });
-    t.grid = DRUMS.map(d => (spec.drum[d.id] || Array(STEPS).fill(0)).map(v => v ? 1 : 0)); p.tracks.push(t);
+    t.grid = DRUMS.map(d => fitRow(spec.drum[d.id], totalSteps())); p.tracks.push(t);
   }
   (spec.synths || []).forEach(sy => {
     const t = makeTrack('synth'); t.name = sy.name; t.sound = { shape: sy.shape, pitch: sy.pitch, brightness: sy.brightness, attack: sy.attack, release: sy.release, vibrato: sy.vibrato };
@@ -1212,7 +1269,8 @@ resetBtn.addEventListener('click', () => {
   if (resetBtn.dataset.arm) { if (playing) stop(); if (rec) stopRecording(); project.tracks.forEach(t => { if (t.type === 'sample') idb.del(t.id); }); nodes.clear(); samples.clear(); const id = project.id, name = project.name; project = defaultProject(); project.id = id; project.name = name; sel = project.tracks[0].id; save(); syncTop(); renderTracks(); renderEditor(); renderLibrary(); delete resetBtn.dataset.arm; resetBtn.textContent = '還原'; toast('已回到一開始的範例'); }
   else { resetBtn.dataset.arm = '1'; resetBtn.textContent = '確定還原？再按一次'; setTimeout(() => { delete resetBtn.dataset.arm; resetBtn.textContent = '還原'; }, 3000); }
 });
-function syncTop(){ $('bpm').value = project.bpm; $('bpmVal').textContent = project.bpm; $('master').value = Math.round(project.master.volume * 100); }
+function syncTop(){ $('bpm').value = project.bpm; $('bpmVal').textContent = project.bpm; $('master').value = Math.round(project.master.volume * 100); document.querySelectorAll('.seg button').forEach(b => b.classList.toggle('active', +b.dataset.bars === (project.bars || 1))); }
+document.querySelectorAll('.seg button').forEach(b => b.addEventListener('click', () => { if (viewingShare) { toast('分享的作品不能改長度，先「複製一份來改」'); return; } setBars(+b.dataset.bars); toast(project.bars === 1 ? '改成 1 小節' : '改成 ' + project.bars + ' 小節，新的小節先複製了第 1 小節，點上面的頁籤切換'); }));
 
 /* ---------- 啟動 ---------- */
 load(); syncTop();
